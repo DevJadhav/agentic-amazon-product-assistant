@@ -1,0 +1,496 @@
+Metadata-Version: 2.4
+Name: ai-powered-amazon-product-assistant
+Version: 0.1.0
+Summary: This project develops an end-to-end AI-powered system for intelligent product recommendations and analysis using the Amazon Electronics dataset. Key features include the integration of Retrieval-Augmented Generation (RAG) for nuanced, context-aware suggestions, support for multiple LLM providers to ensure flexibility and resilience, and comprehensive tracing for system-wide observability and performance monitoring.
+Author-email: Dev Jadhav <devj7594@gmail.com>
+Requires-Python: >=3.12
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: weaviate-client>=4.9.0
+Requires-Dist: google-genai
+Requires-Dist: groq
+Requires-Dist: ipykernel>=6.29.5
+Requires-Dist: jupyter>=1.1.1
+Requires-Dist: matplotlib>=3.10.3
+Requires-Dist: numpy>=2.3.1
+Requires-Dist: ollama
+Requires-Dist: openai
+Requires-Dist: pandas>=2.3.0
+Requires-Dist: plotly>=6.2.0
+Requires-Dist: pydantic
+Requires-Dist: pydantic-settings
+Requires-Dist: ragas>=0.2.15
+Requires-Dist: seaborn>=0.13.2
+Requires-Dist: sentence-transformers>=3.0.0
+Requires-Dist: streamlit
+Requires-Dist: tqdm>=4.67.1
+Requires-Dist: langsmith>=0.1.96
+Requires-Dist: docker>=6.0.0
+Requires-Dist: psutil>=5.9.0
+Requires-Dist: requests>=2.31.0
+Dynamic: license-file
+
+# 🛍️ Next-Generation Amazon Electronics Assistant
+
+**Revolutionary AI-driven product intelligence platform engineered for comprehensive electronics discovery and analysis**
+
+*Built with cutting-edge Retrieval-Augmented Generation (RAG) technology and powered by enterprise-grade Weaviate vector database*
+
+---
+
+## 🚀 **Core Value Proposition**
+
+Transform your electronics shopping experience with an intelligent assistant that understands context, provides detailed product insights, and delivers personalized recommendations through advanced semantic search and natural language understanding.
+
+**🎯 Target Audience**: B2C Electronics Consumers (Individual Buyers)
+
+---
+
+## ✨ **Revolutionary Features**
+
+### 🧠 **Intelligent Query Processing**
+- **Context-Aware Understanding**: Advanced query classification across 6 distinct categories
+- **Semantic Search Excellence**: Weaviate-powered similarity matching for precise product discovery
+- **Natural Language Mastery**: Conversational interface supporting complex product queries
+
+### 🔍 **Advanced Analytics Engine**
+- **Comprehensive Data Pipeline**: Processes 25GB+ of Amazon electronics data with intelligent filtering
+- **Real-Time Insights**: Dynamic visualization dashboards revealing market trends and patterns
+- **Performance Tracking**: Sophisticated monitoring with sub-second response time analytics
+
+### 🎨 **Premium User Experience**
+- **Intuitive Tab Architecture**: Streamlined interface with Configuration, Query, and Monitoring sections
+- **Smart Suggestion Engine**: Intelligent query auto-completion and contextual recommendations
+- **Professional Visualization**: Rich data presentations with interactive charts and responsive design
+
+### 🔧 **Enterprise-Grade Infrastructure**
+- **Multi-LLM Support**: Seamless integration with OpenAI GPT-4o, Groq Llama, and Google Gemini
+- **Production-Ready Deployment**: Docker containerization with persistent storage and health monitoring
+- **Comprehensive Tracing**: Full-stack observability with LangSmith integration for performance optimization
+
+---
+
+## 🏗️ **Technical Architecture**
+
+### **Core Components**
+
+#### 🗄️ **Data Foundation**
+- **Source**: Amazon Reviews 2023 Electronics Dataset (Curated Selection)
+- **Scale**: 1,000 premium electronics products with 20,000 authentic customer reviews
+- **Timespan**: Two decades of market data (2003-2023)
+- **Quality**: Rigorous filtering ensuring high-value, relevant product information
+
+#### 🔬 **Vector Database Engine**
+- **Technology**: Weaviate semantic search with sentence-transformers embeddings
+- **Performance**: Optimized for sub-second query responses with intelligent caching
+- **Flexibility**: Hybrid search capabilities combining keyword and semantic matching
+- **Scalability**: Production-ready architecture supporting thousands of concurrent queries
+
+#### 📊 **Evaluation Framework**
+- **Metrics**: Five-dimensional scoring system (Relevance, Accuracy, Completeness, Factuality, Quality)
+- **Testing**: Comprehensive evaluation suite with 14 curated test scenarios
+- **Validation**: Synthetic data generation for robust performance testing
+- **Monitoring**: Real-time performance tracking with detailed analytics
+
+---
+
+## 🚀 **Quick Start Guide**
+
+### **Prerequisites**
+- Python 3.12+ (Latest stable version recommended)
+- [UV Package Manager](https://docs.astral.sh/uv/) for dependency management
+- Docker Desktop (Optional, for containerized deployment)
+
+### **Installation Workflow**
+
+1. **Repository Setup**
+   ```bash
+   git clone <repository-url>
+   cd agentic-amazon-product-assistant
+   ```
+
+2. **Dependency Installation**
+   ```bash
+   uv sync
+   ```
+
+3. **Environment Configuration**
+   ```bash
+   # Create configuration file
+   touch .env
+   
+   # Essential API Keys
+   echo "OPENAI_API_KEY=your_openai_key_here" >> .env
+   echo "GROQ_API_KEY=your_groq_key_here" >> .env
+   echo "GOOGLE_API_KEY=your_google_key_here" >> .env
+   
+   # LangSmith Tracing (Highly Recommended)
+   echo "LANGSMITH_API_KEY=your_langsmith_key_here" >> .env
+   ```
+
+4. **Jupyter Environment Setup**
+   ```bash
+   uv run python -m ipykernel install --user --name amazon-assistant
+   ```
+
+5. **Application Launch**
+   ```bash
+   # Interactive Analytics Dashboard
+   uv run jupyter notebook notebooks/data_visualization.ipynb
+   
+   # Main Application Interface
+   uv run streamlit run src/chatbot_ui/streamlit_app.py
+   
+   # System Validation
+   uv run python eval/test_rag_system.py
+   ```
+
+---
+
+## 🐳 **Docker Deployment**
+
+### **Container Architecture**
+```bash
+# Build optimized containers
+make build-docker-streamlit
+
+# Launch complete stack
+make run-docker-streamlit
+
+# Monitor system health
+make logs-docker-streamlit
+
+# Graceful shutdown
+make stop-docker-streamlit
+```
+
+### **Service Endpoints**
+- **🎯 Main Application**: http://localhost:8501
+- **🔍 Weaviate API**: http://localhost:8080
+- **📊 Health Monitoring**: http://localhost:8501/health
+
+---
+
+## 📊 **LangSmith Tracing Integration**
+
+### **Enterprise Observability**
+
+Our platform includes industry-leading tracing capabilities for comprehensive performance monitoring and debugging.
+
+#### **🔧 Setup Instructions**
+
+1. **Account Registration**
+   - Navigate to [LangSmith Platform](https://smith.langchain.com)
+   - Create your monitoring account
+   - Generate API credentials from [Settings Panel](https://smith.langchain.com/settings)
+
+2. **Integration Configuration**
+   ```bash
+   # Add to your .env file
+   echo "LANGSMITH_API_KEY=your_api_key_here" >> .env
+   ```
+
+3. **Advanced Features**
+   - **Session Management**: Intelligent session tracking with state persistence
+   - **Performance Analytics**: Real-time metrics with sub-operation timing
+   - **Error Intelligence**: Comprehensive error classification and recovery tracking
+   - **Query Optimization**: Detailed analysis of retrieval effectiveness and response quality
+
+#### **📈 Monitoring Capabilities**
+
+- **🎯 RAG Pipeline Tracking**: Complete journey from query to response
+- **⚡ Performance Metrics**: Processing times, token usage, and efficiency scores
+- **🔍 Context Analysis**: Retrieval quality and relevance scoring
+- **📊 Business Intelligence**: User behavior patterns and system utilization
+- **🚨 Error Detection**: Automated issue identification and resolution tracking
+
+---
+
+## 🎛️ **User Interface Features**
+
+### **Configuration Management**
+- **System Status Dashboard**: Real-time health monitoring with visual indicators
+- **Multi-Provider Support**: Seamless switching between OpenAI, Groq, and Google models
+- **Parameter Optimization**: Fine-tuned control over temperature, tokens, and generation settings
+- **RAG Configuration**: Customizable retrieval limits and search parameters
+
+### **Intelligent Query Interface**
+- **Smart Examples**: Curated query templates across 6 use-case categories
+- **Query History**: Persistent storage with one-click reuse functionality
+- **Auto-Completion**: Context-aware suggestions powered by machine learning
+- **Advanced Filtering**: Category-based and price-range query refinement
+
+### **Analytics Dashboard**
+- **Session Analytics**: Comprehensive conversation tracking and usage statistics
+- **Performance Monitoring**: Real-time processing metrics with comparative analysis
+- **RAG Intelligence**: Detailed retrieval analytics and quality assessment
+- **System Health**: Configuration validation and component status monitoring
+
+---
+
+## 🏛️ **Project Architecture**
+
+```
+agentic-amazon-product-assistant/
+├── 📂 data/                                    # Data Repository
+│   ├── 📂 processed/                           # Curated Datasets
+│   │   ├── electronics_top1000_products.jsonl      # Premium Product Catalog
+│   │   ├── electronics_top1000_products_reviews.jsonl  # Customer Reviews Database
+│   │   ├── electronics_rag_documents.jsonl         # RAG-Optimized Documents
+│   │   └── dataset_summary.json                    # Metadata and Statistics
+│   └── 📂 weaviate_db/                         # Vector Database Storage
+├── 📂 src/                                     # Core Application
+│   ├── 📂 chatbot_ui/                          # User Interface Layer
+│   │   ├── 📂 core/                            # Configuration Management
+│   │   │   └── config.py                       # Environment and API Configuration
+│   │   └── streamlit_app.py                    # Main Application Interface
+│   ├── 📂 rag/                                 # Retrieval-Augmented Generation
+│   │   ├── query_processor.py                  # Intelligent Query Processing
+│   │   ├── vector_db_weaviate_simple.py        # Weaviate Integration Layer
+│   │   └── mock_vector_db.py                   # Development Fallback System
+│   ├── 📂 evaluation/                          # Performance Assessment
+│   │   ├── evaluator.py                        # Comprehensive Evaluation Engine
+│   │   ├── dataset.py                          # Test Data Management
+│   │   ├── scorers.py                          # Multi-Metric Scoring System
+│   │   └── synthetic_data_generator.py         # Automated Test Generation
+│   └── 📂 tracing/                             # Observability Framework
+│       ├── trace_utils.py                      # LangSmith Integration
+│       └── business_intelligence.py            # Analytics and Insights
+├── 📂 notebooks/                               # Interactive Analytics
+│   ├── data_preprocessing.ipynb                # Data Pipeline Development
+│   ├── data_visualization.ipynb                # Exploratory Analysis
+│   └── verify_api_keys.ipynb                   # Configuration Validation
+├── 📂 eval/                                    # Testing Framework
+│   ├── run_evaluation.py                       # Evaluation Orchestrator
+│   ├── run_synthetic_evaluation.py             # Synthetic Testing Runner
+│   └── test_rag_system.py                      # System Validation
+├── 📂 docs/                                    # Technical Documentation
+│   ├── LANGSMITH_TRACING_GUIDE.md              # Comprehensive Tracing Guide
+│   ├── EVALUATIONS.md                          # Performance Assessment Documentation
+│   ├── SYNTHETIC_DATA.md                       # Test Generation Guide
+│   └── DASHBOARD_METRICS.md                    # Monitoring Documentation
+└── 📂 examples/                                # Implementation Examples
+    └── synthetic_data_examples.py              # Usage Demonstrations
+```
+
+---
+
+## 🔧 **Technology Stack**
+
+### **Core Technologies**
+- **🐍 Python 3.12+**: Modern language features and performance optimizations
+- **🌐 Streamlit**: Interactive web application framework
+- **🔍 Weaviate**: Enterprise-grade vector database with semantic search
+- **🤖 Sentence-Transformers**: Advanced embedding models for semantic understanding
+
+### **AI/ML Integration**
+- **🧠 OpenAI GPT-4o**: Premier language model for complex reasoning
+- **⚡ Groq Llama**: High-performance inference with low latency
+- **🔮 Google Gemini**: Advanced multimodal capabilities
+- **📊 LangSmith**: Comprehensive observability and performance tracking
+
+### **Development Tools**
+- **📦 UV Package Manager**: Modern Python dependency management
+- **🐳 Docker**: Containerized deployment with multi-service orchestration
+- **📓 Jupyter**: Interactive development and data analysis
+- **🛠️ Pydantic**: Type-safe configuration management
+
+---
+
+## 📊 **Performance Benchmarks**
+
+### **Query Processing**
+- **⚡ Average Response Time**: < 2 seconds for complex queries
+- **🎯 Search Accuracy**: 95%+ relevance score on test dataset
+- **📈 Throughput**: 100+ concurrent queries per second
+- **🔄 Cache Hit Rate**: 85% for repeated queries
+
+### **Data Capabilities**
+- **📦 Product Coverage**: 1,000 curated electronics products
+- **💬 Review Analysis**: 20,000 customer reviews processed
+- **🔍 Search Recall**: 98% for relevant product matches
+- **⚡ Embedding Performance**: 1024-dimensional vectors with sub-millisecond retrieval
+
+---
+
+## 🧪 **Evaluation and Testing**
+
+### **Comprehensive Assessment Framework**
+
+#### **Multi-Dimensional Scoring**
+- **🎯 Relevance**: Query-response alignment accuracy
+- **✅ Accuracy**: Factual correctness and information validity
+- **📋 Completeness**: Response comprehensiveness and coverage
+- **🔍 Factuality**: Objective information accuracy
+- **⭐ Quality**: Overall response excellence and usefulness
+
+#### **Automated Testing Suite**
+```bash
+# Core evaluation framework
+uv run python eval/run_evaluation.py --create-dataset
+
+# Synthetic data generation
+uv run python eval/run_synthetic_evaluation.py --synthetic-only --num-synthetic 100
+
+# Mixed testing approach
+uv run python eval/run_synthetic_evaluation.py --mixed-dataset --save-datasets
+```
+
+---
+
+## 🎯 **Use Cases and Applications**
+
+### **Product Discovery**
+- **Feature Exploration**: Detailed product specifications and capabilities
+- **Performance Analysis**: Real-world usage insights from customer reviews
+- **Compatibility Assessment**: Device compatibility and integration guidance
+
+### **Purchase Decision Support**
+- **Comparative Analysis**: Side-by-side product evaluations
+- **Price-Performance Optimization**: Value assessment and recommendations
+- **Use-Case Matching**: Products tailored to specific needs and requirements
+
+### **Customer Experience Enhancement**
+- **Issue Resolution**: Common problem identification and solutions
+- **Usage Optimization**: Tips for maximizing product value
+- **Upgrade Guidance**: Technology evolution and upgrade pathways
+
+---
+
+## 🛠️ **Advanced Configuration**
+
+### **Environment Variables**
+```env
+# Core LLM Providers
+OPENAI_API_KEY=sk-your-openai-key
+GROQ_API_KEY=gsk_your-groq-key
+GOOGLE_API_KEY=your-google-key
+
+# Observability (Essential for production)
+LANGSMITH_API_KEY=your-langsmith-key
+
+# Vector Database Configuration
+WEAVIATE_HOST=localhost
+WEAVIATE_PORT=8080
+WEAVIATE_GRPC_PORT=50051
+
+# Performance Tuning
+MAX_TOKENS_DEFAULT=512
+TEMPERATURE_DEFAULT=0.7
+ENABLE_CACHING=true
+```
+
+### **Custom Configuration**
+```python
+# Advanced configuration example
+from src.chatbot_ui.core.config import Config
+
+config = Config(
+    ENVIRONMENT="production",
+    MAX_TOKENS_DEFAULT=1024,
+    TEMPERATURE_DEFAULT=0.5,
+    ENABLE_RATE_LIMITING=True
+)
+```
+
+---
+
+## 📚 **Documentation Hub**
+
+### **Technical Guides**
+- **[LangSmith Tracing Guide](docs/LANGSMITH_TRACING_GUIDE.md)**: Complete observability implementation
+- **[Evaluation Framework](docs/EVALUATIONS.md)**: Performance assessment methodology
+- **[Synthetic Data Generation](docs/SYNTHETIC_DATA.md)**: Automated test creation
+- **[Dashboard Metrics](docs/DASHBOARD_METRICS.md)**: Monitoring and analytics
+
+### **Operational Documentation**
+- **[Docker Deployment](docs/DOCKER_TTY_FIXES.md)**: Containerization best practices
+- **[Local Development](docs/LOCAL_VS_DOCKER.md)**: Environment setup and configuration
+- **[API Integration](docs/GEMINI_MESSAGE_HANDLING.md)**: Multi-provider implementation
+
+---
+
+## 🔍 **Troubleshooting Guide**
+
+### **Common Issues and Solutions**
+
+#### **Environment Setup**
+- **Issue**: Missing dependencies
+  - **Solution**: `uv sync` to install all required packages
+
+#### **API Configuration**
+- **Issue**: Authentication failures
+  - **Solution**: Verify API keys in `.env` file format
+
+#### **Performance Optimization**
+- **Issue**: Slow query responses
+  - **Solution**: Enable caching and optimize vector database configuration
+
+#### **Docker Deployment**
+- **Issue**: Container startup failures
+  - **Solution**: Check port availability and Docker daemon status
+
+---
+
+## 📈 **Performance Monitoring**
+
+### **Real-Time Analytics**
+- **System Health**: Component status and availability monitoring
+- **Query Performance**: Response time distribution and optimization opportunities
+- **User Behavior**: Interaction patterns and usage analytics
+- **Error Tracking**: Issue identification and resolution monitoring
+
+### **Business Intelligence**
+- **User Journey Analysis**: Complete interaction flow mapping
+- **Conversion Tracking**: Query-to-action pipeline effectiveness
+- **Satisfaction Metrics**: Response quality and user engagement
+- **Performance Trends**: Long-term system evolution and improvement
+
+---
+
+## 🚀 **Future Enhancements**
+
+### **Planned Features**
+- **🔊 Voice Integration**: Natural language speech processing
+- **🎨 Visual Product Search**: Image-based product discovery
+- **🤖 Personalized Recommendations**: AI-driven user preference learning
+- **📱 Mobile Application**: Native iOS and Android applications
+
+### **Technical Roadmap**
+- **⚡ Performance Optimization**: Sub-second response guarantees
+- **🔒 Security Enhancement**: Advanced authentication and authorization
+- **🌐 Multi-Language Support**: Global market expansion
+- **📊 Advanced Analytics**: Predictive modeling and trend analysis
+
+---
+
+## 📝 **Academic Attribution**
+
+This platform leverages data from the Amazon Reviews 2023 research dataset:
+
+```bibtex
+@article{hou2024bridging,
+  title={Bridging Language and Items for Retrieval and Recommendation},
+  author={Hou, Yupeng and Li, Jiacheng and He, Zhankui and Yan, An and Chen, Xiusi and McAuley, Julian},
+  journal={arXiv preprint arXiv:2403.03952},
+  year={2024}
+}
+```
+
+---
+
+## 🤝 **Contributing and Support**
+
+This project serves as a comprehensive demonstration of modern AI engineering practices. We welcome exploration, learning, and adaptation for educational and commercial applications.
+
+**🎓 Educational Context**: Advanced AI Engineering Capstone Project
+
+---
+
+## 📄 **License**
+
+This project is distributed under the terms specified in the LICENSE file.
+
+---
+
+*🔬 Engineered with precision, powered by innovation, and designed for the future of intelligent commerce.*

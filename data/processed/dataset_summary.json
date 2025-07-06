@@ -1,0 +1,24 @@
+{
+  "dataset_info": {
+    "source": "Amazon Reviews 2023 - Electronics Category",
+    "citation": "Hou et al. (2024) - Bridging Language and Items for Retrieval and Recommendation (arXiv:2403.03952)",
+    "processing_date": "2025-06-26T22:08:47.363330",
+    "selection_criteria": {
+      "target_products": 1000,
+      "min_reviews_per_product": 10,
+      "max_reviews_per_product": 20
+    }
+  },
+  "statistics": {
+    "total_products": 1000,
+    "total_reviews": 20000,
+    "products_with_metadata": 1000,
+    "products_with_reviews": 1000,
+    "review_count_stats": {
+      "min": 3453,
+      "max": 178239,
+      "mean": 8022.383,
+      "median": 5331.5
+    }
+  }
+}

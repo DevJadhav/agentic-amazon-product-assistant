@@ -1,0 +1,138 @@
+# =============================================================================
+# 🚀 AI-Powered Amazon Product Assistant - Production Dockerfile
+# =============================================================================
+# Multi-stage production build with security hardening and performance optimization
+# Author: Amazon Electronics Assistant Team
+# Version: 1.0.0
+# =============================================================================
+
+# Stage 1: Base dependencies
+FROM python:3.12-slim-bullseye as base
+
+# Set environment variables for Python optimization
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH=/app/src:/app \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# Create non-root user for security
+RUN groupadd -r appuser && useradd -r -g appuser appuser
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    ca-certificates \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Stage 2: Dependencies installation
+FROM base as dependencies
+
+# Create application directory
+WORKDIR /app
+
+# Copy requirements first for better caching
+COPY pyproject.toml ./
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -e .
+
+# Stage 3: Application setup
+FROM dependencies as application
+
+# Copy application code
+COPY . .
+
+# Create necessary directories with proper permissions
+RUN mkdir -p /app/data /app/logs /app/cache && \
+    chown -R appuser:appuser /app
+
+# Stage 4: Production optimization
+FROM application as production
+
+# Install production-specific dependencies
+RUN pip install --no-cache-dir \
+    gunicorn==21.2.0 \
+    prometheus-client==0.19.0
+
+# Create entrypoint script
+RUN cat > /app/entrypoint.sh << 'EOF'
+#!/bin/bash
+set -e
+
+# Performance optimizations
+export PYTHONOPTIMIZE=1
+export STREAMLIT_SERVER_HEADLESS=true
+export STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
+
+# Health check endpoint
+export STREAMLIT_SERVER_ENABLE_HEALTH_CHECK=true
+
+# Security configurations
+export STREAMLIT_SERVER_ENABLE_CORS=false
+export STREAMLIT_SERVER_ENABLE_XSRF_PROTECTION=true
+
+# Initialize data directory if needed
+if [ ! -f /app/data/.initialized ]; then
+    echo "🔧 Initializing application data..."
+    python -c "
+import os
+import sys
+sys.path.insert(0, '/app/src')
+from rag.query_processor import create_rag_processor
+try:
+    processor = create_rag_processor()
+    if processor.vector_db:
+        stats = processor.vector_db.get_collection_stats()
+        print(f'✅ Database initialized with {stats["total_documents"]} documents')
+    touch_file = open('/app/data/.initialized', 'w')
+    touch_file.write('initialized')
+    touch_file.close()
+except Exception as e:
+    print(f'⚠️ Database initialization skipped: {e}')
+"
+fi
+
+# Start the application
+echo "🚀 Starting AI Product Assistant..."
+exec streamlit run /app/streamlit_app.py \
+    --server.port=8501 \
+    --server.address=0.0.0.0 \
+    --server.headless=true \
+    --browser.gatherUsageStats=false \
+    --server.enableCORS=false \
+    --server.enableXsrfProtection=true
+EOF
+
+RUN chmod +x /app/entrypoint.sh
+
+# Create health check script
+RUN cat > /app/healthcheck.sh << 'EOF'
+#!/bin/bash
+# Health check for Docker
+
+# Check if Streamlit is responding
+if curl -f http://localhost:8501/_stcore/health > /dev/null 2>&1; then
+    echo "✅ Streamlit is healthy"
+    exit 0
+else
+    echo "❌ Streamlit is not responding"
+    exit 1
+fi
+EOF
+
+RUN chmod +x /app/healthcheck.sh
+
+# Switch to non-root user
+USER appuser
+
+# Expose port
+EXPOSE 8501
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD /app/healthcheck.sh
+
+# Set entrypoint
+ENTRYPOINT ["/app/entrypoint.sh"] 

@@ -1,0 +1,4 @@
+simplified_test_report_*.json
+__pycache__/
+*.pyc
+.DS_Store

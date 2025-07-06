@@ -1,7 +1,33 @@
 [project]
-name = "agentic-amazon-product-assistant"
+name = "ai-powered-amazon-product-assistant"
 version = "0.1.0"
-description = "Add your description here"
+description = "This project develops an end-to-end AI-powered system for intelligent product recommendations and analysis using the Amazon Electronics dataset. Key features include the integration of Retrieval-Augmented Generation (RAG) for nuanced, context-aware suggestions, support for multiple LLM providers to ensure flexibility and resilience, and comprehensive tracing for system-wide observability and performance monitoring."
 readme = "README.md"
-requires-python = ">=3.12.10"
-dependencies = []
+authors = [
+    {name = "Dev Jadhav", email = "devj7594@gmail.com"}
+]
+requires-python = ">=3.12"
+dependencies = [
+    "weaviate-client>=4.9.0",
+    "google-genai",
+    "groq",
+    "ipykernel>=6.29.5",
+    "jupyter>=1.1.1",
+    "matplotlib>=3.10.3",
+    "numpy>=2.3.1",
+    "ollama",
+    "openai",
+    "pandas>=2.3.0",
+    "plotly>=6.2.0",
+    "pydantic",
+    "pydantic-settings",
+    "ragas>=0.2.15",
+    "seaborn>=0.13.2",
+    "sentence-transformers>=3.0.0",
+    "streamlit",
+    "tqdm>=4.67.1",
+    "langsmith>=0.1.96",
+    "docker>=6.0.0",
+    "psutil>=5.9.0",
+    "requests>=2.31.0",
+]
