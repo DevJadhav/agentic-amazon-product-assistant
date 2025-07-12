@@ -7,11 +7,14 @@ import json
 import logging
 import re
 import uuid
+import asyncio
+import time
 from typing import Dict, List, Optional, Tuple, Any, Pattern, FrozenSet, NamedTuple
 from dataclasses import dataclass, field
 from pathlib import Path
 from functools import lru_cache
 from enum import Enum
+from concurrent.futures import ThreadPoolExecutor
 
 import os
 from langsmith import traceable
@@ -127,6 +130,9 @@ class RAGQueryProcessor:
         
         # Initialize query patterns once
         self._query_patterns = self._compile_query_patterns()
+        
+        # Thread pool for async operations
+        self._executor = ThreadPoolExecutor(max_workers=4)
         
         # Initialize vector database if not provided
         if not self.vector_db:
@@ -611,56 +617,246 @@ Summary: {content}...
     
     @traceable
     def process_query(self, query: str, max_products: int = 5, max_reviews: int = 3) -> Dict[str, Any]:
-        """
-        Process a complete RAG query.
+        """Process query with enhanced tracing and context building."""
         
-        Time Complexity: O(n) where n is size of search results
-        Space Complexity: O(n) for storing results
-        """
+        # Start time for performance measurement
+        start_time = time.time()
+        
+        # Generate unique trace ID
+        trace_id = str(uuid.uuid4())
+        
+        logger.info(f"Processing query [trace_id={trace_id}]: {query}")
+        
         try:
-            # Validate input
-            if not query or not query.strip():
-                return {
-                    "success": False,
-                    "error": "Empty query provided",
-                    "query": query
-                }
+            # Build context with tracing
+            context = self.build_context(query, max_products, max_reviews, trace_id)
             
-            # Build context
-            context = self.build_context(query, max_products, max_reviews)
+            # Generate RAG prompt
+            prompt = self.generate_rag_prompt(context)
             
-            # Check for errors in context
-            if "error" in context.metadata:
-                return {
-                    "success": False,
-                    "error": context.metadata["error"],
-                    "query": query,
-                    "context": context
-                }
+            # Calculate processing time
+            processing_time = time.time() - start_time
             
-            # Generate enhanced prompt
-            rag_prompt = self.generate_rag_prompt(context)
-            
-            return {
-                "success": True,
+            # Create comprehensive result with performance metrics
+            result = {
                 "query": query,
-                "context": context,
-                "enhanced_prompt": rag_prompt,
-                "metadata": {
-                    "num_products": len(context.products),
-                    "num_reviews": len(context.reviews),
+                "context": {
                     "query_type": context.query_type.value,
-                    "has_results": context.has_results
+                    "products": context.products,
+                    "reviews": context.reviews,
+                    "metadata": context.metadata,
+                    "has_results": context.has_results,
+                    "total_results": context.total_results
+                },
+                "prompt": prompt,
+                "performance": {
+                    "processing_time": processing_time,
+                    "trace_id": trace_id,
+                    "async_execution": False
                 }
             }
-        
+            
+            logger.info(f"Query processed successfully in {processing_time:.3f}s [trace_id={trace_id}]")
+            
+            return result
+            
         except Exception as e:
-            logger.error(f"Error processing query: {e}")
+            processing_time = time.time() - start_time
+            logger.error(f"Query processing failed after {processing_time:.3f}s [trace_id={trace_id}]: {e}")
+            
+            # Return error result
             return {
-                "success": False,
+                "query": query,
                 "error": str(e),
-                "query": query
+                "performance": {
+                    "processing_time": processing_time,
+                    "trace_id": trace_id,
+                    "async_execution": False
+                }
             }
+    
+    # ========== ASYNC METHODS FOR PERFORMANCE OPTIMIZATION ==========
+    
+    @traceable
+    async def build_context_async(self, query: str, max_products: int = 5, max_reviews: int = 3, 
+                                trace_id: Optional[str] = None) -> QueryContext:
+        """Build context asynchronously for RAG query processing."""
+        
+        # Create trace context if available
+        trace_context = None
+        if _has_tracing:
+            trace_context = create_enhanced_trace_context(
+                trace_id=trace_id or str(uuid.uuid4()),
+                operation="build_context_async",
+                query=query,
+                max_products=max_products,
+                max_reviews=max_reviews
+            )
+        
+        # Analyze query asynchronously
+        query_type, extracted_terms = await self._analyze_query_async(query, trace_id)
+        
+        # Build initial context
+        context = QueryContext(
+            query=query,
+            query_type=query_type,
+            products=[],
+            reviews=[],
+            metadata={}
+        )
+        
+        # Perform business analysis if available
+        if _has_tracing and trace_context:
+            await self._perform_business_analysis_async(query, trace_context)
+        
+        # Use appropriate search strategy
+        search_strategy = self._get_search_strategy(query_type)
+        
+        # Execute search strategy asynchronously
+        await self._execute_search_strategy_async(
+            search_strategy, context, query, extracted_terms, max_products, max_reviews
+        )
+        
+        # Build metadata
+        context.metadata = self._build_metadata(query_type, extracted_terms, trace_context, trace_id)
+        
+        logger.info(f"Built context for query_type={query_type.value}, "
+                   f"products={len(context.products)}, reviews={len(context.reviews)}")
+        
+        return context
+    
+    async def _analyze_query_async(self, query: str, trace_id: Optional[str] = None) -> Tuple[QueryType, List[str]]:
+        """Analyze query asynchronously to determine type and extract terms."""
+        
+        # Run analysis in thread pool to avoid blocking
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            self._executor,
+            self.analyze_query,
+            query,
+            trace_id
+        )
+    
+    async def _perform_business_analysis_async(self, query: str, trace_context: Optional[TraceContext]) -> None:
+        """Perform business analysis asynchronously."""
+        if not (_has_tracing and business_analyzer):
+            return
+        
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(
+            self._executor,
+            self._perform_business_analysis,
+            query,
+            trace_context
+        )
+    
+    async def _execute_search_strategy_async(self, search_strategy: callable, context: QueryContext, 
+                                           query: str, extracted_terms: List[str], 
+                                           max_products: int, max_reviews: int) -> None:
+        """Execute search strategy asynchronously."""
+        
+        # Run search strategy in thread pool
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(
+            self._executor,
+            search_strategy,
+            context,
+            query,
+            extracted_terms,
+            max_products,
+            max_reviews
+        )
+    
+    async def _add_product_results_async(self, context: QueryContext, query: str, n_results: int, 
+                                       price_range: Optional[Tuple[float, float]] = None) -> None:
+        """Add product results asynchronously."""
+        
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(
+            self._executor,
+            self._add_product_results,
+            context,
+            query,
+            n_results,
+            price_range
+        )
+    
+    async def _add_review_results_async(self, context: QueryContext, query: str, n_results: int) -> None:
+        """Add review results asynchronously."""
+        
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(
+            self._executor,
+            self._add_review_results,
+            context,
+            query,
+            n_results
+        )
+    
+    @traceable
+    async def process_query_async(self, query: str, max_products: int = 5, max_reviews: int = 3) -> Dict[str, Any]:
+        """Process query asynchronously with enhanced tracing and context building."""
+        
+        # Start time for performance measurement
+        start_time = asyncio.get_event_loop().time()
+        
+        # Generate unique trace ID
+        trace_id = str(uuid.uuid4())
+        
+        logger.info(f"Processing query asynchronously [trace_id={trace_id}]: {query}")
+        
+        try:
+            # Build context asynchronously
+            context = await self.build_context_async(query, max_products, max_reviews, trace_id)
+            
+            # Generate RAG prompt
+            prompt = self.generate_rag_prompt(context)
+            
+            # Calculate processing time
+            processing_time = asyncio.get_event_loop().time() - start_time
+            
+            # Create comprehensive result with performance metrics
+            result = {
+                "query": query,
+                "context": {
+                    "query_type": context.query_type.value,
+                    "products": context.products,
+                    "reviews": context.reviews,
+                    "metadata": context.metadata,
+                    "has_results": context.has_results,
+                    "total_results": context.total_results
+                },
+                "prompt": prompt,
+                "performance": {
+                    "processing_time": processing_time,
+                    "trace_id": trace_id,
+                    "async_execution": True
+                }
+            }
+            
+            logger.info(f"Query processed successfully in {processing_time:.3f}s [trace_id={trace_id}]")
+            
+            return result
+            
+        except Exception as e:
+            processing_time = asyncio.get_event_loop().time() - start_time
+            logger.error(f"Query processing failed after {processing_time:.3f}s [trace_id={trace_id}]: {e}")
+            
+            # Return error result
+            return {
+                "query": query,
+                "error": str(e),
+                "performance": {
+                    "processing_time": processing_time,
+                    "trace_id": trace_id,
+                    "async_execution": True
+                }
+            }
+    
+    def __del__(self):
+        """Clean up thread pool on deletion."""
+        if hasattr(self, '_executor'):
+            self._executor.shutdown(wait=False)
 
 
 @lru_cache(maxsize=1)

@@ -16,8 +16,8 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
-# Create non-root user for security
-RUN groupadd -r appuser && useradd -r -g appuser appuser
+# Create non-root user for security with proper home directory
+RUN groupadd -r appuser && useradd -r -g appuser -m -s /bin/bash appuser
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -45,8 +45,10 @@ FROM dependencies as application
 COPY . .
 
 # Create necessary directories with proper permissions
-RUN mkdir -p /app/data /app/logs /app/cache && \
-    chown -R appuser:appuser /app
+RUN mkdir -p /app/data /app/logs /app/cache /home/appuser/.streamlit && \
+    chown -R appuser:appuser /app && \
+    chown -R appuser:appuser /home/appuser && \
+    chmod 755 /app/data /app/logs /app/cache
 
 # Stage 4: Production optimization
 FROM application as production
@@ -96,7 +98,7 @@ fi
 
 # Start the application
 echo "🚀 Starting AI Product Assistant..."
-exec streamlit run /app/streamlit_app.py \
+exec streamlit run /app/src/chatbot_ui/enhanced_streamlit_app.py \
     --server.port=8501 \
     --server.address=0.0.0.0 \
     --server.headless=true \
@@ -124,8 +126,11 @@ EOF
 
 RUN chmod +x /app/healthcheck.sh
 
-# Switch to non-root user
+# Switch to non-root user and verify
 USER appuser
+
+# Verify we're running as non-root user
+RUN whoami && id
 
 # Expose port
 EXPOSE 8501

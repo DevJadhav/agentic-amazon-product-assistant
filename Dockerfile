@@ -42,12 +42,21 @@ RUN addgroup --system app && \
     adduser --system --ingroup app --home /home/app app && \
     mkdir -p /home/app/.streamlit && \
     mkdir -p /app/data/weaviate_db && \
+    mkdir -p /app/logs && \
     chmod +x /app/docker-entrypoint.sh && \
     chown -R app:app /app && \
     chown -R app:app /home/app
 
-# Switch to non-root user
+# Ensure non-root user can write to necessary directories
+RUN chmod 755 /app/data/weaviate_db && \
+    chmod 755 /app/logs && \
+    chmod 755 /home/app/.streamlit
+
+# Switch to non-root user (ensure this is the final user)
 USER app
+
+# Verify we're running as non-root user
+RUN whoami && id
 
 # Set HOME environment variable
 ENV HOME=/home/app

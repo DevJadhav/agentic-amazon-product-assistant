@@ -1,4 +1,4 @@
-oservices:
+services:
   streamlit-app:
     build: .
     container_name: ai-product-assistant-app

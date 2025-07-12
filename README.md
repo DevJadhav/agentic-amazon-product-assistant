@@ -70,7 +70,7 @@ echo "LANGSMITH_PROJECT=amazon-electronics-assistant" >> .env
 
 ```bash
 # Run production test suite
-python scripts/simplified_production_test.py
+python scripts/production_test_suite.py
 
 # Expected: 6/6 tests passing (100% success rate)
 ```
@@ -79,7 +79,7 @@ python scripts/simplified_production_test.py
 
 ```bash
 # Start the assistant
-streamlit run src/chatbot_ui/streamlit_app.py
+streamlit run src/chatbot_ui/enhanced_streamlit_app.py
 
 # Access at: http://localhost:8501
 ```
@@ -119,3 +119,5 @@ docker-compose logs -f
 ### **Product Recommendations**
 ```
 User: "What are the best wireless headphones under $200?"
+
+```

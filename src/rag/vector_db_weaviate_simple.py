@@ -7,10 +7,12 @@ import json
 import logging
 import os
 import time
+import asyncio
 import weaviate
 from weaviate.classes.config import Configure, Property, DataType, VectorDistances
 from weaviate.classes.data import DataObject
 from typing import Dict, List, Optional, Any, Tuple
+from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 from sentence_transformers import SentenceTransformer
 
@@ -31,6 +33,9 @@ class ElectronicsVectorDBSimple:
         self.embedding_model = self._get_default_embedding_model()
         self.sentence_transformer = SentenceTransformer(self.embedding_model)
         self.embedding_dimension = self.sentence_transformer.get_sentence_embedding_dimension()
+        
+        # Thread pool for async operations
+        self._executor = ThreadPoolExecutor(max_workers=4)
         
         # Initialize Weaviate client
         self.client = self._initialize_client()
@@ -401,17 +406,92 @@ class ElectronicsVectorDBSimple:
             return False
     
     def close(self) -> None:
-        """Close the database connection."""
+        """Close connections and clean up resources."""
         try:
-            if hasattr(self, 'client') and self.client:
+            if hasattr(self, '_executor'):
+                self._executor.shutdown(wait=True)
+            if hasattr(self, 'client'):
                 self.client.close()
-                logger.info("Closed Weaviate connection")
+            logger.info("Vector database connections closed")
         except Exception as e:
-            logger.error(f"Error closing connection: {e}")
+            logger.error(f"Error closing vector database: {e}")
     
     def __del__(self) -> None:
-        """Destructor to ensure proper cleanup."""
-        self.close()
+        """Cleanup on object deletion."""
+        try:
+            self.close()
+        except:
+            pass  # Ignore errors during cleanup
+    
+    # ========== ASYNC METHODS FOR PERFORMANCE OPTIMIZATION ==========
+    
+    async def search_products_async(self, query: str, n_results: int = 5, 
+                                  price_range: Optional[Tuple[float, float]] = None) -> Dict[str, Any]:
+        """Search for products asynchronously."""
+        
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            self._executor,
+            self.search_products,
+            query,
+            n_results,
+            price_range
+        )
+    
+    async def search_reviews_async(self, query: str, n_results: int = 3) -> Dict[str, Any]:
+        """Search for reviews asynchronously."""
+        
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            self._executor,
+            self.search_reviews,
+            query,
+            n_results
+        )
+    
+    async def hybrid_search_async(self, query: str, n_results: int = 8, 
+                                include_products: bool = True, 
+                                include_reviews: bool = True) -> Dict[str, Any]:
+        """Perform hybrid search asynchronously."""
+        
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            self._executor,
+            self.hybrid_search,
+            query,
+            n_results,
+            include_products,
+            include_reviews
+        )
+    
+    async def _generate_embedding_async(self, text: str) -> np.ndarray:
+        """Generate embedding for text asynchronously."""
+        
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            self._executor,
+            self._generate_embedding,
+            text
+        )
+    
+    async def _store_batch_async(self, batch_data: List[Dict]) -> bool:
+        """Store batch of documents asynchronously."""
+        
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            self._executor,
+            self._store_batch,
+            batch_data
+        )
+    
+    async def get_collection_stats_async(self) -> Dict[str, Any]:
+        """Get collection statistics asynchronously."""
+        
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            self._executor,
+            self.get_collection_stats
+        )
 
 
 @traceable
