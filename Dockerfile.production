@@ -98,7 +98,7 @@ fi
 
 # Start the application
 echo "🚀 Starting AI Product Assistant..."
-exec streamlit run /app/src/chatbot_ui/enhanced_streamlit_app.py \
+exec streamlit run /app/src/chatbot_ui/streamlit_app.py \
     --server.port=8501 \
     --server.address=0.0.0.0 \
     --server.headless=true \

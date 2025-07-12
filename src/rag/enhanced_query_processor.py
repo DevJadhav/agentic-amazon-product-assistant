@@ -1,681 +1,522 @@
 """
-Enhanced Query Processor with Advanced Query Type Detection
-Intelligent query processing with automatic query type detection, intent classification, and response optimization.
+Enhanced RAG Query Processor with hybrid retrieval and structured outputs.
+Extends the base query processor with advanced search capabilities.
 """
 
-import re
-import logging
-from typing import Dict, List, Any, Optional, Tuple
-from dataclasses import dataclass
-from enum import Enum
-import numpy as np
-from collections import defaultdict
 import json
-import spacy
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.naive_bayes import MultinomialNB
-from sklearn.pipeline import Pipeline
+import logging
+import re
+import uuid
+import asyncio
+import time
+from typing import Dict, List, Optional, Tuple, Any, Union
+from dataclasses import dataclass, field
+from pathlib import Path
+from enum import Enum
+
 from langsmith import traceable
+
+# Import base query processor
+from .query_processor import RAGQueryProcessor, QueryType, QueryContext
+
+# Import enhanced vector database
+from .enhanced_vector_db import EnhancedElectronicsVectorDB, HybridSearchConfig, SearchResult
+from .structured_outputs import StructuredRAGResponse, ResponseType, StructuredRAGRequest
+from .structured_generator import StructuredResponseGenerator
+
+# Import prompt registry
+try:
+    from prompts.registry import get_registry, PromptType
+    _has_prompt_registry = True
+except ImportError:
+    _has_prompt_registry = False
 
 logger = logging.getLogger(__name__)
 
-class QueryType(Enum):
-    """Enhanced query types for intelligent processing."""
-    PRODUCT_SEARCH = "product_search"
-    PRODUCT_COMPARISON = "product_comparison"
-    REVIEW_ANALYSIS = "review_analysis"
-    RECOMMENDATION = "recommendation"
-    PRICE_INQUIRY = "price_inquiry"
-    TECHNICAL_SPECS = "technical_specs"
-    COMPLAINT_ANALYSIS = "complaint_analysis"
-    USE_CASE_INQUIRY = "use_case_inquiry"
-    BRAND_COMPARISON = "brand_comparison"
-    AVAILABILITY_CHECK = "availability_check"
-    GENERAL_QUESTION = "general_question"
-
-class QueryComplexity(Enum):
-    """Query complexity levels."""
-    SIMPLE = "simple"
-    MODERATE = "moderate"
-    COMPLEX = "complex"
-
-class QueryIntent(Enum):
-    """User intent classification."""
-    RESEARCH = "research"
-    PURCHASE = "purchase"
-    TROUBLESHOOT = "troubleshoot"
-    COMPARE = "compare"
-    LEARN = "learn"
 
 @dataclass
-class QueryAnalysis:
-    """Comprehensive query analysis results."""
+class EnhancedQueryContext:
+    """Enhanced query context with additional metadata."""
+    query: str
     query_type: QueryType
-    complexity: QueryComplexity
-    intent: QueryIntent
-    confidence: float
-    entities: Dict[str, List[str]]
-    keywords: List[str]
-    price_range: Optional[Tuple[float, float]]
-    product_categories: List[str]
-    brands: List[str]
-    features: List[str]
-    sentiment: str
-    language_patterns: Dict[str, Any]
-    search_strategy: Dict[str, Any]
+    products: List[Dict[str, Any]] = field(default_factory=list)
+    reviews: List[Dict[str, Any]] = field(default_factory=list)
+    search_results: List[SearchResult] = field(default_factory=list)
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    has_results: bool = False
+    total_results: int = 0
+    search_strategy: str = "hybrid"
+    reranking_applied: bool = False
+    processing_time: float = 0.0
 
-class EnhancedQueryProcessor:
-    """Enhanced query processor with ML-based classification and intent detection."""
+
+class SearchStrategy(Enum):
+    """Search strategy enumeration."""
+    SEMANTIC_ONLY = "semantic_only"
+    KEYWORD_ONLY = "keyword_only"
+    HYBRID = "hybrid"
+    ADAPTIVE = "adaptive"
+
+
+class EnhancedRAGQueryProcessor(RAGQueryProcessor):
+    """Enhanced RAG query processor with hybrid retrieval capabilities."""
     
-    def __init__(self):
-        """Initialize the enhanced query processor."""
-        self.query_patterns = self._load_query_patterns()
-        self.product_categories = self._load_product_categories()
-        self.brand_names = self._load_brand_names()
-        self.feature_keywords = self._load_feature_keywords()
+    def __init__(self, vector_db: Optional[EnhancedElectronicsVectorDB] = None,
+                 default_search_strategy: SearchStrategy = SearchStrategy.HYBRID,
+                 structured_generator: Optional[StructuredResponseGenerator] = None):
+        """Initialize enhanced query processor."""
+        # Don't call parent __init__ to avoid double initialization
+        self.vector_db = vector_db
+        self.default_search_strategy = default_search_strategy
+        self.structured_generator = structured_generator
         
-        # Initialize NLP models
+        # Initialize query patterns from parent
+        self._query_patterns = self._compile_query_patterns()
+        
+        # Initialize enhanced vector database if not provided
+        if not self.vector_db:
+            self._initialize_enhanced_vector_db()
+    
+    def _initialize_enhanced_vector_db(self) -> None:
+        """Initialize enhanced vector database with hybrid retrieval."""
+        logger.info("Initializing enhanced vector database with hybrid retrieval...")
+        
+        # Find JSONL file
+        jsonl_path = self._find_jsonl_path()
+        if not jsonl_path:
+            logger.warning("JSONL file not found - using fallback mock database")
+            self._initialize_fallback_vector_db()
+            return
+        
         try:
-            self.nlp = spacy.load("en_core_web_sm")
-        except OSError:
-            logger.warning("spaCy model not found. Installing...")
-            # In production, this should be pre-installed
-            self.nlp = None
-        
-        # Initialize ML classifier
-        self.query_classifier = self._initialize_classifier()
-        
-        # Performance tracking
-        self.query_stats = defaultdict(int)
-        
-        logger.info("Enhanced Query Processor initialized")
-    
-    def _load_query_patterns(self) -> Dict[QueryType, List[str]]:
-        """Load regex patterns for query type detection."""
-        return {
-            QueryType.PRODUCT_SEARCH: [
-                r'\b(find|search|show|looking for|need)\b.*\b(product|item|device|gadget)\b',
-                r'\bwhat.*\b(best|good|top)\b.*\b(for|in)\b',
-                r'\b(where|how) to (buy|find|get)\b',
-                r'\b(show me|find me)\b.*\b(products|items)\b'
-            ],
-            QueryType.PRODUCT_COMPARISON: [
-                r'\b(compare|comparison|vs|versus|difference|between)\b',
-                r'\b(which is better|what.*difference|how.*different)\b',
-                r'\b(pros and cons|advantages|disadvantages)\b',
-                r'\b([A-Z][a-z]+) (vs|versus) ([A-Z][a-z]+)\b'
-            ],
-            QueryType.REVIEW_ANALYSIS: [
-                r'\b(reviews?|opinions?|feedback|ratings?)\b',
-                r'\bwhat.*people.*say\b',
-                r'\b(user experience|customer|buyers?)\b.*\b(think|say|report)\b',
-                r'\b(complaints?|issues?|problems?)\b.*\b(with|about)\b'
-            ],
-            QueryType.RECOMMENDATION: [
-                r'\b(recommend|suggest|advice|should i)\b',
-                r'\b(best|top|good)\b.*\b(for|under|within)\b',
-                r'\bwhat.*\b(buy|get|choose|pick)\b',
-                r'\b(help me|need help)\b.*\b(choosing|selecting|finding)\b'
-            ],
-            QueryType.PRICE_INQUIRY: [
-                r'\b(price|cost|expensive|cheap|budget|affordable)\b',
-                r'\$\d+|\b\d+\s*(dollars?|bucks?)\b',
-                r'\b(under|below|less than|within)\b.*\$',
-                r'\b(how much|price range|budget)\b'
-            ],
-            QueryType.TECHNICAL_SPECS: [
-                r'\b(specifications?|specs|features?|technical)\b',
-                r'\b(dimensions?|weight|size|capacity)\b',
-                r'\b(battery|power|voltage|watts?)\b',
-                r'\b(compatibility|compatible|works? with)\b'
-            ],
-            QueryType.COMPLAINT_ANALYSIS: [
-                r'\b(problems?|issues?|complaints?|defects?)\b',
-                r'\b(broken|defective|faulty|bad|terrible)\b',
-                r'\b(return|refund|warranty|replacement)\b',
-                r'\bwhy.*\b(breaking|failing|not working)\b'
-            ],
-            QueryType.USE_CASE_INQUIRY: [
-                r'\b(for|suitable for|good for|use for)\b.*\b(gaming|work|office|home)\b',
-                r'\b(portable|travel|outdoor|indoor)\b',
-                r'\b(professional|business|personal|family)\b',
-                r'\bwhat.*\b(use|purpose|application)\b'
-            ],
-            QueryType.BRAND_COMPARISON: [
-                r'\b(Apple|Samsung|Sony|Dell|HP|Lenovo|ASUS|Microsoft)\b.*\b(vs|versus|compared to)\b',
-                r'\b(brand|manufacturer|company)\b.*\b(better|best|comparison)\b',
-                r'\bwhich brand\b'
-            ],
-            QueryType.AVAILABILITY_CHECK: [
-                r'\b(available|in stock|out of stock|availability)\b',
-                r'\b(where.*buy|find.*store|purchase)\b',
-                r'\b(shipping|delivery|when.*available)\b'
-            ]
-        }
-    
-    def _load_product_categories(self) -> List[str]:
-        """Load product categories for entity extraction."""
-        return [
-            'laptop', 'computer', 'desktop', 'tablet', 'ipad',
-            'phone', 'smartphone', 'iphone', 'android',
-            'headphones', 'earbuds', 'speakers', 'audio',
-            'monitor', 'display', 'tv', 'television',
-            'camera', 'webcam', 'photography',
-            'router', 'modem', 'networking', 'wifi',
-            'keyboard', 'mouse', 'accessories',
-            'charger', 'cable', 'adapter', 'power',
-            'gaming', 'console', 'controller',
-            'smartwatch', 'fitness', 'tracker',
-            'drone', 'rc', 'remote control',
-            'home automation', 'smart home', 'alexa', 'google home'
-        ]
-    
-    def _load_brand_names(self) -> List[str]:
-        """Load brand names for entity extraction."""
-        return [
-            'Apple', 'Samsung', 'Sony', 'LG', 'Dell', 'HP', 'Lenovo', 'ASUS',
-            'Acer', 'Microsoft', 'Google', 'Amazon', 'Bose', 'JBL', 'Beats',
-            'Logitech', 'Razer', 'Corsair', 'SteelSeries', 'HyperX',
-            'Canon', 'Nikon', 'GoPro', 'DJI', 'Anker', 'Belkin',
-            'Netgear', 'TP-Link', 'Linksys', 'ASUS', 'Xiaomi', 'OnePlus'
-        ]
-    
-    def _load_feature_keywords(self) -> Dict[str, List[str]]:
-        """Load feature keywords for extraction."""
-        return {
-            'connectivity': ['wifi', 'bluetooth', 'usb', 'wireless', 'ethernet', 'nfc'],
-            'audio': ['noise canceling', 'bass', 'treble', 'stereo', 'surround', 'microphone'],
-            'display': ['4k', '1080p', 'hd', 'oled', 'lcd', 'led', 'touchscreen', 'retina'],
-            'performance': ['fast', 'slow', 'responsive', 'lag', 'speed', 'performance'],
-            'battery': ['battery life', 'charging', 'power', 'battery', 'charge'],
-            'build': ['durable', 'sturdy', 'lightweight', 'portable', 'compact', 'build quality'],
-            'gaming': ['gaming', 'fps', 'latency', 'rgb', 'mechanical', 'esports'],
-            'design': ['design', 'aesthetic', 'color', 'style', 'appearance', 'look']
-        }
-    
-    def _initialize_classifier(self) -> Optional[Pipeline]:
-        """Initialize ML classifier for query type detection."""
-        try:
-            # Training data for query classification
-            training_data = self._get_training_data()
+            from .enhanced_vector_db import setup_enhanced_vector_database
             
-            if training_data:
-                # Create TF-IDF + Naive Bayes pipeline
-                classifier = Pipeline([
-                    ('tfidf', TfidfVectorizer(
-                        ngram_range=(1, 3),
-                        max_features=10000,
-                        stop_words='english'
-                    )),
-                    ('classifier', MultinomialNB(alpha=0.1))
-                ])
-                
-                # Train classifier
-                texts, labels = zip(*training_data)
-                classifier.fit(texts, labels)
-                
-                logger.info("Query classifier trained successfully")
-                return classifier
+            self.vector_db = setup_enhanced_vector_database(
+                jsonl_path,
+                enable_keyword_search=True,
+                enable_reranking=True
+            )
+            logger.info("Enhanced vector database initialized successfully")
             
         except Exception as e:
-            logger.error(f"Failed to initialize classifier: {e}")
+            logger.error(f"Failed to initialize enhanced vector database: {e}")
+            logger.info("Falling back to basic vector database")
+            super()._initialize_vector_db()
+    
+    def _find_jsonl_path(self) -> Optional[str]:
+        """Find JSONL file path."""
+        # Try various possible paths
+        possible_paths = [
+            "data/processed/electronics_rag_documents.jsonl",
+            "data/processed/electronics_top1000_products.jsonl",
+            "src/chatbot_ui/data/processed/electronics_rag_documents.jsonl",
+            "src/chatbot_ui/data/processed/electronics_top1000_products.jsonl"
+        ]
+        
+        for path in possible_paths:
+            if Path(path).exists():
+                return path
         
         return None
     
-    def _get_training_data(self) -> List[Tuple[str, str]]:
-        """Get training data for query classification."""
-        return [
-            # Product Search
-            ("find the best wireless headphones", "product_search"),
-            ("show me budget laptops", "product_search"),
-            ("looking for gaming keyboards", "product_search"),
-            
-            # Comparison
-            ("compare iPhone vs Samsung Galaxy", "product_comparison"),
-            ("what's the difference between iPad and tablet", "product_comparison"),
-            ("MacBook vs Dell laptop pros and cons", "product_comparison"),
-            
-            # Reviews
-            ("what do people say about AirPods", "review_analysis"),
-            ("user reviews for wireless mouse", "review_analysis"),
-            ("customer complaints about this phone", "review_analysis"),
-            
-            # Recommendations
-            ("recommend good headphones under $100", "recommendation"),
-            ("what should I buy for gaming", "recommendation"),
-            ("best laptop for programming", "recommendation"),
-            
-            # Price
-            ("how much does iPhone cost", "price_inquiry"),
-            ("cheap alternatives to expensive laptop", "price_inquiry"),
-            ("budget phones under $300", "price_inquiry"),
-            
-            # Technical
-            ("specifications of this laptop", "technical_specs"),
-            ("battery life of wireless earbuds", "technical_specs"),
-            ("compatibility with Mac", "technical_specs"),
-            
-            # More training examples...
-        ]
+    def _initialize_fallback_vector_db(self) -> None:
+        """Initialize fallback vector database."""
+        try:
+            from .mock_vector_db import MockElectronicsVectorDB
+            self.vector_db = MockElectronicsVectorDB()
+            logger.info("Fallback mock vector database initialized")
+        except ImportError:
+            logger.warning("Fallback vector database not available")
+            self.vector_db = None
     
     @traceable
-    def analyze_query(self, query: str, context: Optional[Dict] = None) -> QueryAnalysis:
-        """Perform comprehensive query analysis."""
-        query_lower = query.lower().strip()
+    def determine_search_strategy(self, query: str, query_type: QueryType) -> SearchStrategy:
+        """Determine optimal search strategy based on query characteristics."""
         
-        # Basic analysis
-        query_type = self._detect_query_type(query_lower)
-        complexity = self._assess_complexity(query_lower)
-        intent = self._classify_intent(query_lower)
-        confidence = self._calculate_confidence(query_lower, query_type)
+        # Rule-based strategy selection
+        if query_type == QueryType.PRODUCT_COMPARISON:
+            return SearchStrategy.HYBRID  # Need both semantic and keyword matching
+        elif query_type == QueryType.PRODUCT_RECOMMENDATION:
+            return SearchStrategy.SEMANTIC_ONLY  # Semantic similarity more important
+        elif query_type in [QueryType.PRODUCT_INFO, QueryType.PRODUCT_REVIEWS]:
+            return SearchStrategy.HYBRID  # Benefit from both approaches
+        elif "specific" in query.lower() or "exact" in query.lower():
+            return SearchStrategy.KEYWORD_ONLY  # Exact matches preferred
+        else:
+            return self.default_search_strategy
+    
+    @traceable
+    def build_enhanced_context(self, query: str, max_products: int = 5, 
+                             max_reviews: int = 3, 
+                             search_strategy: Optional[SearchStrategy] = None,
+                             trace_id: Optional[str] = None) -> EnhancedQueryContext:
+        """Build enhanced context using hybrid retrieval."""
+        start_time = time.time()
         
-        # Entity extraction
-        entities = self._extract_entities(query)
-        keywords = self._extract_keywords(query_lower)
+        # Input validation
+        if not query or not query.strip():
+            return EnhancedQueryContext(
+                query="", 
+                query_type=QueryType.GENERAL_SEARCH,
+                metadata={"error": "Empty query"}
+            )
         
-        # Specific extractions
-        price_range = self._extract_price_range(query_lower)
-        product_categories = self._extract_product_categories(query_lower)
-        brands = self._extract_brands(query)
-        features = self._extract_features(query_lower)
+        # Check vector database
+        if not self.vector_db:
+            return EnhancedQueryContext(
+                query=query,
+                query_type=QueryType.GENERAL_SEARCH,
+                metadata={"error": "Database not available"}
+            )
         
-        # Sentiment and patterns
-        sentiment = self._analyze_sentiment(query_lower)
-        language_patterns = self._analyze_language_patterns(query)
+        # Analyze query
+        query_type, extracted_terms = self.analyze_query(query, trace_id)
         
-        # Search strategy
-        search_strategy = self._determine_search_strategy(
-            query_type, complexity, entities, keywords
+        # Determine search strategy
+        if search_strategy is None:
+            search_strategy = self.determine_search_strategy(query, query_type)
+        
+        # Configure hybrid search
+        config = HybridSearchConfig(
+            max_results=max_products + max_reviews,
+            enable_reranking=True,
+            semantic_weight=0.7,
+            keyword_weight=0.3
         )
         
-        # Update statistics
-        self.query_stats[query_type.value] += 1
+        # Perform search based on strategy
+        search_results = []
         
-        return QueryAnalysis(
+        if search_strategy == SearchStrategy.SEMANTIC_ONLY:
+            search_results = self.vector_db.semantic_search(
+                query, n_results=config.max_results
+            )
+        elif search_strategy == SearchStrategy.KEYWORD_ONLY:
+            search_results = self.vector_db.keyword_search(
+                query, n_results=config.max_results
+            )
+        elif search_strategy == SearchStrategy.HYBRID:
+            search_results = self.vector_db.hybrid_search_enhanced(
+                query, config=config
+            )
+        elif search_strategy == SearchStrategy.ADAPTIVE:
+            # Try hybrid first, fall back to semantic if needed
+            search_results = self.vector_db.hybrid_search_enhanced(
+                query, config=config
+            )
+            if not search_results:
+                search_results = self.vector_db.semantic_search(
+                    query, n_results=config.max_results
+                )
+        
+        # Separate products and reviews
+        products = []
+        reviews = []
+        
+        for result in search_results:
+            if result.metadata.get("doc_type") == "product" and len(products) < max_products:
+                products.append({
+                    "content": result.content,
+                    "metadata": result.metadata,
+                    "score": result.score,
+                    "search_type": result.search_type
+                })
+            elif result.metadata.get("doc_type") == "review_summary" and len(reviews) < max_reviews:
+                reviews.append({
+                    "content": result.content,
+                    "metadata": result.metadata,
+                    "score": result.score,
+                    "search_type": result.search_type
+                })
+        
+        processing_time = time.time() - start_time
+        
+        # Build enhanced context
+        context = EnhancedQueryContext(
+            query=query,
             query_type=query_type,
-            complexity=complexity,
-            intent=intent,
-            confidence=confidence,
-            entities=entities,
-            keywords=keywords,
-            price_range=price_range,
-            product_categories=product_categories,
-            brands=brands,
-            features=features,
-            sentiment=sentiment,
-            language_patterns=language_patterns,
-            search_strategy=search_strategy
+            products=products,
+            reviews=reviews,
+            search_results=search_results,
+            metadata={
+                "extracted_terms": extracted_terms,
+                "search_strategy": search_strategy.value,
+                "config": config.__dict__,
+                "trace_id": trace_id
+            },
+            has_results=bool(products or reviews),
+            total_results=len(search_results),
+            search_strategy=search_strategy.value,
+            reranking_applied=config.enable_reranking,
+            processing_time=processing_time
         )
+        
+        logger.info(f"Enhanced context built: {len(products)} products, {len(reviews)} reviews, "
+                   f"strategy: {search_strategy.value}, time: {processing_time:.3f}s")
+        
+        return context
     
-    def _detect_query_type(self, query: str) -> QueryType:
-        """Detect query type using pattern matching and ML."""
-        # Try ML classifier first
-        if self.query_classifier:
+    @traceable
+    def process_query_enhanced(self, query: str, max_products: int = 5, 
+                             max_reviews: int = 3,
+                             search_strategy: Optional[SearchStrategy] = None) -> Dict[str, Any]:
+        """Process query with enhanced hybrid retrieval."""
+        start_time = time.time()
+        trace_id = str(uuid.uuid4())
+        
+        logger.info(f"Processing enhanced query [trace_id={trace_id}]: {query}")
+        
+        try:
+            # Build enhanced context
+            context = self.build_enhanced_context(
+                query, max_products, max_reviews, search_strategy, trace_id
+            )
+            
+            # Generate enhanced prompt
+            prompt = self.generate_enhanced_rag_prompt(context)
+            
+            processing_time = time.time() - start_time
+            
+            # Create comprehensive result
+            result = {
+                "query": query,
+                "context": {
+                    "query_type": context.query_type.value,
+                    "products": context.products,
+                    "reviews": context.reviews,
+                    "search_results": [
+                        {
+                            "id": r.id,
+                            "content": r.content[:200] + "..." if len(r.content) > 200 else r.content,
+                            "score": r.score,
+                            "rank": r.rank,
+                            "search_type": r.search_type
+                        }
+                        for r in context.search_results[:10]  # Limit for output size
+                    ],
+                    "metadata": context.metadata,
+                    "has_results": context.has_results,
+                    "total_results": context.total_results,
+                    "search_strategy": context.search_strategy,
+                    "reranking_applied": context.reranking_applied
+                },
+                "prompt": prompt,
+                "performance": {
+                    "processing_time": processing_time,
+                    "context_processing_time": context.processing_time,
+                    "trace_id": trace_id,
+                    "search_strategy": context.search_strategy
+                },
+                "success": True
+            }
+            
+            logger.info(f"Enhanced query processed successfully in {processing_time:.3f}s")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Enhanced query processing failed: {e}")
+            return {
+                "query": query,
+                "success": False,
+                "error": str(e),
+                "trace_id": trace_id
+            }
+    
+    def generate_enhanced_rag_prompt(self, context: EnhancedQueryContext) -> str:
+        """Generate enhanced RAG prompt with hybrid search context using template registry."""
+        
+        # Try to use prompt registry if available
+        if _has_prompt_registry:
             try:
-                predicted_type = self.query_classifier.predict([query])[0]
-                return QueryType(predicted_type)
+                prompt_registry = get_registry()
+                
+                # Map query type to prompt type
+                prompt_type_mapping = {
+                    QueryType.PRODUCT_RECOMMENDATION: PromptType.PRODUCT_RECOMMENDATION,
+                    QueryType.PRODUCT_COMPARISON: PromptType.PRODUCT_COMPARISON,
+                    QueryType.PRODUCT_INFO: PromptType.PRODUCT_INFO,
+                    QueryType.PRODUCT_REVIEWS: PromptType.REVIEW_SUMMARY,
+                    QueryType.PRODUCT_COMPLAINTS: PromptType.TROUBLESHOOTING,
+                    QueryType.GENERAL_SEARCH: PromptType.GENERAL_QUERY
+                }
+                
+                prompt_type = prompt_type_mapping.get(context.query_type, PromptType.GENERAL_QUERY)
+                
+                # Prepare search context for template
+                search_context = {
+                    "query_type": context.query_type.value,
+                    "search_strategy": context.search_strategy,
+                    "total_results": context.total_results,
+                    "reranking_applied": context.reranking_applied
+                }
+                
+                # Render prompt using template
+                rendered_prompt = prompt_registry.render_rag_prompt(
+                    prompt_type=prompt_type,
+                    query=context.query,
+                    products=context.products,
+                    reviews=context.reviews,
+                    search_context=search_context
+                )
+                
+                return rendered_prompt
+                
             except Exception as e:
-                logger.debug(f"ML classification failed: {e}")
+                logger.warning(f"Failed to use prompt registry, falling back to hardcoded prompt: {e}")
         
-        # Fallback to pattern matching
-        type_scores = defaultdict(int)
-        
-        for query_type, patterns in self.query_patterns.items():
-            for pattern in patterns:
-                if re.search(pattern, query, re.IGNORECASE):
-                    type_scores[query_type] += 1
-        
-        if type_scores:
-            return max(type_scores.items(), key=lambda x: x[1])[0]
-        
-        return QueryType.GENERAL_QUESTION
+        # Fallback to hardcoded prompt if registry is not available
+        return self._generate_fallback_prompt(context)
     
-    def _assess_complexity(self, query: str) -> QueryComplexity:
-        """Assess query complexity based on multiple factors."""
-        complexity_score = 0
+    def _generate_fallback_prompt(self, context: EnhancedQueryContext) -> str:
+        """Generate fallback prompt when prompt registry is not available."""
         
-        # Length factor
-        word_count = len(query.split())
-        if word_count > 20:
-            complexity_score += 2
-        elif word_count > 10:
-            complexity_score += 1
+        # Enhanced prompt template
+        prompt_template = """You are an expert AI assistant specializing in Amazon Electronics products. 
+Use the following context to provide a comprehensive, accurate, and helpful response.
+
+SEARCH CONTEXT:
+- Query Type: {query_type}
+- Search Strategy: {search_strategy}
+- Results Found: {total_results}
+- Reranking Applied: {reranking_applied}
+
+PRODUCT INFORMATION:
+{product_context}
+
+REVIEW INSIGHTS:
+{review_context}
+
+USER QUERY: {query}
+
+INSTRUCTIONS:
+1. Provide a direct, helpful response to the user's query
+2. Use specific product details and review insights when available
+3. Mention relevant product names, prices, and key features
+4. If comparing products, create a clear comparison
+5. Base recommendations on both product specifications and user reviews
+6. Be concise but comprehensive
+7. If no relevant information is found, acknowledge this and suggest alternative approaches
+
+RESPONSE:"""
         
-        # Multiple entities
-        entities = self._extract_entities(query)
-        entity_count = sum(len(v) for v in entities.values())
-        if entity_count > 5:
-            complexity_score += 2
-        elif entity_count > 2:
-            complexity_score += 1
-        
-        # Multiple criteria
-        criteria_patterns = [
-            r'\band\b', r'\bor\b', r'\bbut\b', r'\bwith\b', r'\bunder\b',
-            r'\bover\b', r'\bbetween\b', r'\bexcept\b'
-        ]
-        for pattern in criteria_patterns:
-            if re.search(pattern, query):
-                complexity_score += 1
-        
-        # Question complexity
-        if re.search(r'\bwhy\b|\bhow\b|\bwhen\b|\bwhere\b', query):
-            complexity_score += 1
-        
-        # Determine complexity level
-        if complexity_score >= 5:
-            return QueryComplexity.COMPLEX
-        elif complexity_score >= 2:
-            return QueryComplexity.MODERATE
+        # Build product context
+        product_context = ""
+        if context.products:
+            product_context = "Products Found:\n"
+            for i, product in enumerate(context.products[:5], 1):
+                metadata = product.get("metadata", {})
+                product_context += f"{i}. {metadata.get('title', 'Unknown Product')}\n"
+                product_context += f"   - Price: ${metadata.get('price', 'N/A')}\n"
+                product_context += f"   - Rating: {metadata.get('average_rating', 'N/A')}/5 ({metadata.get('rating_number', 0)} reviews)\n"
+                product_context += f"   - Search Score: {product.get('score', 0):.3f} ({product.get('search_type', 'unknown')})\n"
+                product_context += f"   - Details: {product.get('content', '')[:200]}...\n\n"
         else:
-            return QueryComplexity.SIMPLE
-    
-    def _classify_intent(self, query: str) -> QueryIntent:
-        """Classify user intent from the query."""
-        intent_patterns = {
-            QueryIntent.PURCHASE: [
-                r'\b(buy|purchase|order|get|need to buy)\b',
-                r'\b(where.*buy|how.*buy|best place)\b',
-                r'\b(should i buy|worth buying|recommend buying)\b'
-            ],
-            QueryIntent.RESEARCH: [
-                r'\b(compare|research|study|analyze|investigate)\b',
-                r'\b(tell me about|learn about|information)\b',
-                r'\b(specifications|features|details)\b'
-            ],
-            QueryIntent.COMPARE: [
-                r'\b(vs|versus|compare|comparison|difference)\b',
-                r'\b(which is better|what.*different)\b',
-                r'\b(pros and cons|advantages)\b'
-            ],
-            QueryIntent.TROUBLESHOOT: [
-                r'\b(problem|issue|fix|repair|broken|not working)\b',
-                r'\b(troubleshoot|solve|help with)\b',
-                r'\b(why.*not|how to fix)\b'
-            ],
-            QueryIntent.LEARN: [
-                r'\b(how.*work|what is|explain|understand)\b',
-                r'\b(tutorial|guide|instructions)\b',
-                r'\b(learn|teach|show)\b'
-            ]
-        }
+            product_context = "No specific products found in the database."
         
-        for intent, patterns in intent_patterns.items():
-            for pattern in patterns:
-                if re.search(pattern, query, re.IGNORECASE):
-                    return intent
+        # Build review context
+        review_context = ""
+        if context.reviews:
+            review_context = "Review Insights:\n"
+            for i, review in enumerate(context.reviews[:3], 1):
+                metadata = review.get("metadata", {})
+                review_context += f"{i}. Product: {metadata.get('title', 'Unknown')}\n"
+                review_context += f"   - Review Summary: {review.get('content', '')[:300]}...\n"
+                review_context += f"   - Search Score: {review.get('score', 0):.3f} ({review.get('search_type', 'unknown')})\n\n"
+        else:
+            review_context = "No review insights available."
         
-        return QueryIntent.RESEARCH  # Default intent
-    
-    def _calculate_confidence(self, query: str, query_type: QueryType) -> float:
-        """Calculate confidence score for query type detection."""
-        base_confidence = 0.5
-        
-        # Pattern matching confidence
-        patterns = self.query_patterns.get(query_type, [])
-        pattern_matches = sum(1 for pattern in patterns 
-                            if re.search(pattern, query, re.IGNORECASE))
-        pattern_confidence = min(pattern_matches * 0.2, 0.4)
-        
-        # ML classifier confidence
-        ml_confidence = 0.0
-        if self.query_classifier:
-            try:
-                probabilities = self.query_classifier.predict_proba([query])[0]
-                ml_confidence = max(probabilities) * 0.3
-            except:
-                pass
-        
-        # Keyword presence confidence
-        keyword_confidence = 0.0
-        for category, keywords in self.feature_keywords.items():
-            if any(keyword in query for keyword in keywords):
-                keyword_confidence += 0.05
-        
-        keyword_confidence = min(keyword_confidence, 0.2)
-        
-        total_confidence = min(
-            base_confidence + pattern_confidence + ml_confidence + keyword_confidence,
-            1.0
+        # Format the prompt
+        formatted_prompt = prompt_template.format(
+            query_type=context.query_type.value,
+            search_strategy=context.search_strategy,
+            total_results=context.total_results,
+            reranking_applied=context.reranking_applied,
+            product_context=product_context,
+            review_context=review_context,
+            query=context.query
         )
         
-        return round(total_confidence, 2)
+        return formatted_prompt
     
-    def _extract_entities(self, query: str) -> Dict[str, List[str]]:
-        """Extract named entities from the query."""
-        entities = {
-            'products': [],
-            'brands': [],
-            'features': [],
-            'locations': [],
-            'money': [],
-            'organizations': []
+    @traceable
+    def process_query_structured(self, 
+                                request: StructuredRAGRequest) -> StructuredRAGResponse:
+        """Process query with structured outputs."""
+        
+        if not self.structured_generator:
+            raise ValueError("Structured generator not configured")
+        
+        # Build enhanced context
+        context = self.build_enhanced_context(
+            request.query,
+            max_products=request.max_products,
+            max_reviews=request.max_reviews,
+            search_strategy=SearchStrategy(request.search_strategy) if request.search_strategy else None
+        )
+        
+        # Convert enhanced context to format expected by structured generator
+        context_dict = {
+            "query": request.query,
+            "context": {
+                "products": context.products,
+                "reviews": context.reviews,
+                "search_results": [
+                    {
+                        "id": r.id,
+                        "content": r.content,
+                        "score": r.score,
+                        "search_type": r.search_type
+                    }
+                    for r in context.search_results
+                ],
+                "metadata": context.metadata,
+                "has_results": context.has_results,
+                "total_results": context.total_results
+            }
         }
         
-        if self.nlp:
-            doc = self.nlp(query)
-            
-            for ent in doc.ents:
-                if ent.label_ in ['MONEY']:
-                    entities['money'].append(ent.text)
-                elif ent.label_ in ['ORG']:
-                    entities['organizations'].append(ent.text)
-                elif ent.label_ in ['GPE', 'LOC']:
-                    entities['locations'].append(ent.text)
-                elif ent.label_ in ['PRODUCT']:
-                    entities['products'].append(ent.text)
+        # Generate structured response
+        structured_response = self.structured_generator.generate_rag_response(
+            query=request.query,
+            context=context_dict,
+            response_type=request.preferred_response_type
+        )
         
-        # Custom entity extraction
-        entities['brands'].extend(self._extract_brands(query))
-        entities['products'].extend(self._extract_product_categories(query))
-        
-        return entities
-    
-    def _extract_keywords(self, query: str) -> List[str]:
-        """Extract important keywords from the query."""
-        # Remove stop words and extract meaningful terms
-        stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'is', 'are', 'was', 'were', 'be', 'been', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might', 'can', 'this', 'that', 'these', 'those'}
-        
-        words = re.findall(r'\b\w{3,}\b', query.lower())
-        keywords = [word for word in words if word not in stop_words]
-        
-        # Add bigrams and trigrams
-        for i in range(len(words) - 1):
-            bigram = f"{words[i]} {words[i+1]}"
-            if len(bigram) > 6:  # Meaningful bigrams
-                keywords.append(bigram)
-        
-        return list(set(keywords))[:10]  # Return top 10 unique keywords
-    
-    def _extract_price_range(self, query: str) -> Optional[Tuple[float, float]]:
-        """Extract price range from the query."""
-        # Pattern for price ranges
-        price_patterns = [
-            r'under\s*\$?(\d+(?:\.\d{2})?)',
-            r'below\s*\$?(\d+(?:\.\d{2})?)',
-            r'less than\s*\$?(\d+(?:\.\d{2})?)',
-            r'within\s*\$?(\d+(?:\.\d{2})?)',
-            r'budget.*?\$?(\d+(?:\.\d{2})?)',
-            r'\$?(\d+(?:\.\d{2})?)\s*to\s*\$?(\d+(?:\.\d{2})?)',
-            r'\$?(\d+(?:\.\d{2})?)\s*-\s*\$?(\d+(?:\.\d{2})?)',
-            r'between\s*\$?(\d+(?:\.\d{2})?)\s*and\s*\$?(\d+(?:\.\d{2})?)'
-        ]
-        
-        for pattern in price_patterns:
-            match = re.search(pattern, query, re.IGNORECASE)
-            if match:
-                groups = match.groups()
-                if len(groups) == 1:
-                    # Single price (interpreted as maximum)
-                    max_price = float(groups[0])
-                    return (0.0, max_price)
-                elif len(groups) == 2:
-                    # Price range
-                    min_price = float(groups[0])
-                    max_price = float(groups[1])
-                    return (min_price, max_price)
-        
-        return None
-    
-    def _extract_product_categories(self, query: str) -> List[str]:
-        """Extract product categories from the query."""
-        found_categories = []
-        
-        for category in self.product_categories:
-            if re.search(r'\b' + re.escape(category) + r'\b', query, re.IGNORECASE):
-                found_categories.append(category)
-        
-        return found_categories
-    
-    def _extract_brands(self, query: str) -> List[str]:
-        """Extract brand names from the query."""
-        found_brands = []
-        
-        for brand in self.brand_names:
-            if re.search(r'\b' + re.escape(brand) + r'\b', query, re.IGNORECASE):
-                found_brands.append(brand)
-        
-        return found_brands
-    
-    def _extract_features(self, query: str) -> List[str]:
-        """Extract product features from the query."""
-        found_features = []
-        
-        for category, features in self.feature_keywords.items():
-            for feature in features:
-                if re.search(r'\b' + re.escape(feature) + r'\b', query, re.IGNORECASE):
-                    found_features.append(feature)
-        
-        return found_features
-    
-    def _analyze_sentiment(self, query: str) -> str:
-        """Analyze sentiment of the query."""
-        positive_words = ['good', 'great', 'excellent', 'amazing', 'best', 'love', 'awesome', 'fantastic', 'perfect', 'wonderful']
-        negative_words = ['bad', 'terrible', 'awful', 'worst', 'hate', 'horrible', 'poor', 'disappointing', 'useless', 'broken']
-        
-        positive_score = sum(1 for word in positive_words if word in query)
-        negative_score = sum(1 for word in negative_words if word in query)
-        
-        if positive_score > negative_score:
-            return 'positive'
-        elif negative_score > positive_score:
-            return 'negative'
-        else:
-            return 'neutral'
-    
-    def _analyze_language_patterns(self, query: str) -> Dict[str, Any]:
-        """Analyze language patterns in the query."""
-        patterns = {
-            'has_question_words': bool(re.search(r'\b(what|where|when|why|how|which|who)\b', query, re.IGNORECASE)),
-            'has_comparison': bool(re.search(r'\b(vs|versus|compare|better|best|difference)\b', query, re.IGNORECASE)),
-            'has_negation': bool(re.search(r'\b(not|no|never|none|without)\b', query, re.IGNORECASE)),
-            'has_superlatives': bool(re.search(r'\b(best|worst|most|least|top|bottom)\b', query, re.IGNORECASE)),
-            'has_uncertainty': bool(re.search(r'\b(maybe|perhaps|might|could|possibly)\b', query, re.IGNORECASE)),
-            'is_urgent': bool(re.search(r'\b(urgent|asap|immediately|quick|fast|now)\b', query, re.IGNORECASE)),
-            'sentence_length': len(query.split()),
-            'has_technical_terms': len(self._extract_features(query.lower())) > 0
+        # Add search metadata
+        structured_response.search_metadata = {
+            "search_strategy": context.search_strategy,
+            "reranking_applied": context.reranking_applied,
+            "total_results": context.total_results,
+            "processing_time": context.processing_time
         }
         
-        return patterns
+        return structured_response
     
-    def _determine_search_strategy(self, 
-                                 query_type: QueryType, 
-                                 complexity: QueryComplexity,
-                                 entities: Dict[str, List[str]], 
-                                 keywords: List[str]) -> Dict[str, Any]:
-        """Determine optimal search strategy based on query analysis."""
-        strategy = {
-            'search_methods': [],
-            'result_count': 10,
-            'filters': {},
-            'ranking_factors': [],
-            'response_style': 'detailed'
-        }
+    def get_search_analytics(self) -> Dict[str, Any]:
+        """Get analytics about search performance."""
+        if not isinstance(self.vector_db, EnhancedElectronicsVectorDB):
+            return {"error": "Enhanced vector database not available"}
         
-        # Search methods based on query type
-        if query_type == QueryType.PRODUCT_SEARCH:
-            strategy['search_methods'] = ['semantic_search', 'category_filter']
-            strategy['result_count'] = 15
-            strategy['ranking_factors'] = ['rating', 'review_count', 'price']
-            
-        elif query_type == QueryType.PRODUCT_COMPARISON:
-            strategy['search_methods'] = ['semantic_search', 'brand_filter']
-            strategy['result_count'] = 8
-            strategy['ranking_factors'] = ['rating', 'features']
-            strategy['response_style'] = 'comparison_table'
-            
-        elif query_type == QueryType.REVIEW_ANALYSIS:
-            strategy['search_methods'] = ['review_search', 'sentiment_analysis']
-            strategy['result_count'] = 20
-            strategy['ranking_factors'] = ['review_sentiment', 'review_length']
-            strategy['response_style'] = 'summary'
-            
-        elif query_type == QueryType.RECOMMENDATION:
-            strategy['search_methods'] = ['semantic_search', 'popularity_boost']
-            strategy['result_count'] = 12
-            strategy['ranking_factors'] = ['rating', 'popularity', 'price_value']
-            
-        elif query_type == QueryType.PRICE_INQUIRY:
-            strategy['search_methods'] = ['price_filter', 'semantic_search']
-            strategy['result_count'] = 10
-            strategy['ranking_factors'] = ['price', 'value_rating']
-            strategy['response_style'] = 'price_focused'
-        
-        # Adjust based on complexity
-        if complexity == QueryComplexity.COMPLEX:
-            strategy['result_count'] = min(strategy['result_count'] * 2, 30)
-            strategy['search_methods'].append('hybrid_search')
-        
-        # Add filters based on entities
-        if entities.get('brands'):
-            strategy['filters']['brands'] = entities['brands']
-        
-        if entities.get('products'):
-            strategy['filters']['categories'] = entities['products']
-        
-        # Adjust response style based on patterns
-        if len(keywords) > 8:
-            strategy['response_style'] = 'comprehensive'
-        elif len(keywords) < 3:
-            strategy['response_style'] = 'concise'
-        
-        return strategy
-    
-    def get_query_statistics(self) -> Dict[str, Any]:
-        """Get query processing statistics."""
-        total_queries = sum(self.query_stats.values())
+        stats = self.vector_db.get_collection_stats()
         
         return {
-            'total_queries_processed': total_queries,
-            'query_type_distribution': dict(self.query_stats),
-            'most_common_type': max(self.query_stats.items(), key=lambda x: x[1])[0] if self.query_stats else None,
-            'classifier_available': self.query_classifier is not None,
-            'nlp_model_available': self.nlp is not None
+            "database_stats": stats,
+            "search_capabilities": {
+                "semantic_search": True,
+                "keyword_search": self.vector_db.enable_keyword_search,
+                "hybrid_search": True,
+                "reranking": self.vector_db.enable_reranking,
+                "structured_outputs": bool(self.structured_generator)
+            },
+            "indexes": {
+                "products": bool(self.vector_db.indexes.get("products", {}).get("bm25")),
+                "reviews": bool(self.vector_db.indexes.get("reviews", {}).get("bm25")),
+                "combined": bool(self.vector_db.indexes.get("combined", {}).get("bm25"))
+            }
         }
-    
-    def suggest_query_improvements(self, query: str, analysis: QueryAnalysis) -> List[str]:
-        """Suggest improvements to make the query more effective."""
-        suggestions = []
-        
-        # Suggest adding price range
-        if not analysis.price_range and analysis.query_type in [QueryType.PRODUCT_SEARCH, QueryType.RECOMMENDATION]:
-            suggestions.append("Consider adding a price range (e.g., 'under $100') for more targeted results")
-        
-        # Suggest being more specific
-        if analysis.complexity == QueryComplexity.SIMPLE and len(analysis.keywords) < 3:
-            suggestions.append("Try being more specific about features or requirements")
-        
-        # Suggest brand preferences
-        if not analysis.brands and analysis.query_type == QueryType.PRODUCT_COMPARISON:
-            suggestions.append("Mentioning specific brands can help with comparisons")
-        
-        # Suggest use case
-        if not any(use_case in query.lower() for use_case in ['gaming', 'work', 'home', 'travel', 'professional']):
-            suggestions.append("Specifying your use case (gaming, work, etc.) can improve recommendations")
-        
-        return suggestions[:3]  # Return top 3 suggestions
 
 
-def create_enhanced_query_processor() -> EnhancedQueryProcessor:
-    """Create and initialize the enhanced query processor."""
-    return EnhancedQueryProcessor()
+def create_enhanced_rag_processor(vector_db: Optional[EnhancedElectronicsVectorDB] = None,
+                                 structured_generator: Optional[StructuredResponseGenerator] = None) -> EnhancedRAGQueryProcessor:
+    """Create enhanced RAG processor with hybrid retrieval capabilities."""
+    return EnhancedRAGQueryProcessor(vector_db=vector_db, structured_generator=structured_generator) 

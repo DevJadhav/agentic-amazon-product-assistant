@@ -4,7 +4,7 @@ Implements singleton pattern with validation and environment-specific settings.
 """
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field, validator, SecretStr
+from pydantic import Field, field_validator, SecretStr
 from typing import Optional, Dict, Any
 from functools import lru_cache
 import os
@@ -103,14 +103,16 @@ class Config(BaseSettings):
         extra="forbid"  # Fail on unknown fields
     )
     
-    @validator("ENVIRONMENT", pre=True)
+    @field_validator("ENVIRONMENT", mode="before")
+    @classmethod
     def detect_docker_environment(cls, v: str) -> str:
         """Automatically detect Docker environment."""
         if os.getenv("WEAVIATE_HOST") is not None:
             return Environment.DOCKER
         return v
     
-    @validator("LOG_LEVEL")
+    @field_validator("LOG_LEVEL")
+    @classmethod
     def validate_log_level(cls, v: str) -> str:
         """Validate log level is valid."""
         valid_levels = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}

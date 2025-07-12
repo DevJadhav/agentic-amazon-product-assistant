@@ -49,7 +49,7 @@ echo "LANGSMITH_PROJECT=amazon-electronics-assistant" >> .env
 
 ```bash
 # Run production validation tests
-python scripts/production_test_suite.py
+python scripts/simplified_production_test.py
 
 # Expected output: 100% test success rate
 ```
@@ -58,7 +58,7 @@ python scripts/production_test_suite.py
 
 ```bash
 # Start the assistant
-streamlit run src/chatbot_ui/enhanced_streamlit_app.py
+streamlit run src/chatbot_ui/streamlit_app.py
 
 # Access at: http://localhost:8501
 ```
@@ -313,7 +313,7 @@ jobs:
       - name: Install dependencies
         run: pip install -e .
       - name: Run tests
-        run: python scripts/production_test_suite.py
+        run: python scripts/simplified_production_test.py
 
   deploy:
     needs: test

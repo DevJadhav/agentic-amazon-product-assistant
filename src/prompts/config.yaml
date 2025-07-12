@@ -1,0 +1,61 @@
+templates:
+  general_query:
+    description: Template for general query responses
+    macro_name: general_query_prompt
+    name: General Query
+    parameters:
+    - query
+    - products
+    - reviews
+    - search_context
+    template_path: rag_templates.j2
+  product_comparison:
+    description: Template for product comparison responses
+    macro_name: product_comparison_prompt
+    name: Product Comparison
+    parameters:
+    - query
+    - products
+    - reviews
+    - search_context
+    template_path: rag_templates.j2
+  product_info:
+    description: Template for product information responses
+    macro_name: product_info_prompt
+    name: Product Information
+    parameters:
+    - query
+    - products
+    - reviews
+    - search_context
+    template_path: rag_templates.j2
+  product_recommendation:
+    description: Template for product recommendation responses
+    macro_name: product_recommendation_prompt
+    name: Product Recommendation
+    parameters:
+    - query
+    - products
+    - reviews
+    - search_context
+    template_path: rag_templates.j2
+  review_summary:
+    description: Template for review summary responses
+    macro_name: review_summary_prompt
+    name: Review Summary
+    parameters:
+    - query
+    - products
+    - reviews
+    - search_context
+    template_path: rag_templates.j2
+  troubleshooting:
+    description: Template for troubleshooting responses
+    macro_name: troubleshooting_prompt
+    name: Troubleshooting
+    parameters:
+    - query
+    - products
+    - reviews
+    - search_context
+    template_path: rag_templates.j2
