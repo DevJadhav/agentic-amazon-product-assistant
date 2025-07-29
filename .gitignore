@@ -1,5 +1,36 @@
-simplified_test_report_*.json
+# Python
 __pycache__/
-*.pyc
+.pytest_cache/
+.kiro/
+
+
+# IDE and Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
 .DS_Store
+
+
+
+# Temporary folders
+tmp/
+temp/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+
+# PEP 582
+__pypackages__/
+
+# Environments
 .env
+.venv
+
+
+
+
+
+

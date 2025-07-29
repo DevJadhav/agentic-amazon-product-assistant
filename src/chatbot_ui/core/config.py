@@ -100,7 +100,7 @@ class Config(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=True,
-        extra="forbid"  # Fail on unknown fields
+        extra="ignore"  # Ignore unknown fields (for LangGraph env vars)
     )
     
     @field_validator("ENVIRONMENT", mode="before")

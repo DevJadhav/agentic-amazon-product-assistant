@@ -16,6 +16,7 @@ sys.path.append(str(parent_dir))
 
 from chatbot_ui.core.config import config
 from rag.query_processor import create_rag_processor
+from chatbot_ui.langgraph_integration import create_langgraph_integration
 
 # Configure logger
 logger = logging.getLogger(__name__)
@@ -853,8 +854,25 @@ if st.session_state.get('rag_processor'):
 else:
     st.caption("General AI assistant (RAG not available)")
 
+# Import agent interface
+from chatbot_ui.agent_interface import render_agent_interface, render_agent_comparison
+
 # Create main tab interface
-tab_query, tab_config, tab_monitoring = st.tabs(["💬 Query", "🔧 Configuration", "📊 Monitoring"])
+tab_query, tab_agent, tab_config, tab_monitoring, tab_comparison = st.tabs([
+    "💬 Traditional RAG", 
+    "🤖 AI Agent", 
+    "🔧 Configuration", 
+    "📊 Monitoring",
+    "⚖️ Comparison"
+])
+
+# Add agent tab content
+with tab_agent:
+    render_agent_interface()
+
+# Add comparison tab content  
+with tab_comparison:
+    render_agent_comparison()
 
 with tab_config:
     st.header("System Configuration")

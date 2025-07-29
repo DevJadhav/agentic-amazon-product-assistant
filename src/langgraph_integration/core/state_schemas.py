@@ -1,0 +1,263 @@
+"""
+State schemas for LangGraph agent workflows.
+Defines the structure of conversation and agent states.
+"""
+
+from typing import Dict, List, Optional, Any, TypedDict, Annotated
+from langchain_core.messages import BaseMessage
+from datetime import datetime
+
+
+class ConversationState(TypedDict):
+    """Shared state across all agent workflows."""
+    
+    # Core conversation data
+    messages: List[BaseMessage]
+    session_id: str
+    conversation_turn: int
+    
+    # Query processing
+    current_query: str
+    query_type: str
+    extracted_entities: List[str]
+    
+    # Search and retrieval
+    search_results: Dict[str, Any]
+    selected_products: List[Dict[str, Any]]
+    review_summaries: List[Dict[str, Any]]
+    
+    # Response generation
+    context_for_llm: str
+    final_response: Optional[str]
+
+
+class AgentState(TypedDict):
+    """Complete agent state for LangGraph workflows."""
+    
+    # Core conversation data
+    messages: List[BaseMessage]
+    session_id: str
+    conversation_turn: int
+    created_at: datetime
+    updated_at: datetime
+    
+    # Query processing
+    current_query: str
+    query_type: str
+    extracted_entities: List[str]
+    query_intent: Optional[str]
+    
+    # Search and retrieval
+    search_results: Dict[str, Any]
+    selected_products: List[Dict[str, Any]]
+    review_summaries: List[Dict[str, Any]]
+    search_metadata: Dict[str, Any]
+    
+    # Agent workflow
+    current_step: str
+    tool_calls: List[Dict[str, Any]]
+    intermediate_steps: List[Dict[str, Any]]
+    workflow_status: str
+    
+    # Response generation
+    context_for_llm: str
+    final_response: Optional[str]
+    response_metadata: Dict[str, Any]
+    
+    # Performance and monitoring
+    performance_metrics: Dict[str, Any]
+    error_state: Optional[str]
+    retry_count: int
+    
+    # Configuration
+    max_products: int
+    max_reviews: int
+    llm_provider: str
+    llm_model: str
+
+
+class ToolCallState(TypedDict):
+    """State for individual tool calls."""
+    
+    tool_name: str
+    tool_input: Dict[str, Any]
+    tool_output: Optional[Dict[str, Any]]
+    execution_time: Optional[float]
+    error: Optional[str]
+    timestamp: datetime
+
+
+class WorkflowCheckpoint(TypedDict):
+    """Checkpoint data for workflow persistence."""
+    
+    checkpoint_id: str
+    session_id: str
+    state_data: AgentState
+    node_name: str
+    timestamp: datetime
+    metadata: Dict[str, Any]
+
+
+def create_initial_state(session_id: str, query: str, **kwargs) -> AgentState:
+    """Create initial agent state for a new conversation."""
+    
+    now = datetime.utcnow()
+    
+    return AgentState(
+        # Core conversation data
+        messages=[],
+        session_id=session_id,
+        conversation_turn=1,
+        created_at=now,
+        updated_at=now,
+        
+        # Query processing
+        current_query=query,
+        query_type="unknown",
+        extracted_entities=[],
+        query_intent=None,
+        
+        # Search and retrieval
+        search_results={},
+        selected_products=[],
+        review_summaries=[],
+        search_metadata={},
+        
+        # Agent workflow
+        current_step="start",
+        tool_calls=[],
+        intermediate_steps=[],
+        workflow_status="running",
+        
+        # Response generation
+        context_for_llm="",
+        final_response=None,
+        response_metadata={},
+        
+        # Performance and monitoring
+        performance_metrics={},
+        error_state=None,
+        retry_count=0,
+        
+        # Configuration
+        max_products=kwargs.get("max_products", 5),
+        max_reviews=kwargs.get("max_reviews", 3),
+        llm_provider=kwargs.get("llm_provider", "openai"),
+        llm_model=kwargs.get("llm_model", "gpt-4o-mini")
+    )
+
+
+def update_state_step(state: AgentState, step_name: str, **updates) -> AgentState:
+    """Update agent state for a new workflow step."""
+    
+    updated_state = state.copy()
+    updated_state["current_step"] = step_name
+    updated_state["updated_at"] = datetime.utcnow()
+    
+    # Apply any additional updates
+    for key, value in updates.items():
+        if key in updated_state:
+            updated_state[key] = value
+    
+    return updated_state
+
+
+def validate_state(state: AgentState) -> bool:
+    """Validate agent state structure and required fields."""
+    
+    required_fields = [
+        "session_id", "conversation_turn", "current_query",
+        "messages", "current_step", "workflow_status"
+    ]
+    
+    for field in required_fields:
+        if field not in state:
+            return False
+    
+    # Validate data types
+    if not isinstance(state["messages"], list):
+        return False
+    
+    if not isinstance(state["session_id"], str):
+        return False
+    
+    if not isinstance(state["conversation_turn"], int):
+        return False
+    
+    if not isinstance(state["current_query"], str):
+        return False
+    
+    if not isinstance(state["current_step"], str):
+        return False
+    
+    if not isinstance(state["workflow_status"], str):
+        return False
+    
+    # Validate workflow status values
+    valid_statuses = ["running", "completed", "error", "paused"]
+    if state["workflow_status"] not in valid_statuses:
+        return False
+    
+    # Validate conversation turn is positive
+    if state["conversation_turn"] < 1:
+        return False
+    
+    return True
+
+
+def validate_conversation_state(state: ConversationState) -> bool:
+    """Validate conversation state structure."""
+    
+    required_fields = [
+        "messages", "session_id", "conversation_turn",
+        "current_query", "query_type"
+    ]
+    
+    for field in required_fields:
+        if field not in state:
+            return False
+    
+    # Validate data types
+    if not isinstance(state["messages"], list):
+        return False
+    
+    if not isinstance(state["session_id"], str):
+        return False
+    
+    if not isinstance(state["conversation_turn"], int):
+        return False
+    
+    return True
+
+
+def merge_states(base_state: AgentState, updates: Dict[str, Any]) -> AgentState:
+    """Merge updates into base state safely."""
+    
+    merged_state = base_state.copy()
+    
+    for key, value in updates.items():
+        if key in merged_state:
+            merged_state[key] = value
+    
+    # Update timestamp
+    merged_state["updated_at"] = datetime.utcnow()
+    
+    return merged_state
+
+
+def get_state_summary(state: AgentState) -> Dict[str, Any]:
+    """Get a summary of the agent state."""
+    
+    return {
+        "session_id": state.get("session_id", "unknown"),
+        "conversation_turn": state.get("conversation_turn", 0),
+        "current_step": state.get("current_step", "unknown"),
+        "workflow_status": state.get("workflow_status", "unknown"),
+        "query_type": state.get("query_type", "unknown"),
+        "message_count": len(state.get("messages", [])),
+        "has_search_results": bool(state.get("search_results")),
+        "has_final_response": bool(state.get("final_response")),
+        "error_state": state.get("error_state"),
+        "created_at": state.get("created_at"),
+        "updated_at": state.get("updated_at")
+    }

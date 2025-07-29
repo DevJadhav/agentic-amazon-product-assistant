@@ -31,6 +31,16 @@ from rag.enhanced_vector_db import EnhancedElectronicsVectorDB, setup_enhanced_v
 from rag.structured_outputs import StructuredRAGRequest, StructuredRAGResponse, ResponseType
 from rag.structured_generator import StructuredResponseGenerator
 
+# Import LangGraph components
+from langgraph_integration.api.langgraph_handler import LangGraphAPIHandler
+from langgraph_integration.api.models import (
+    LangGraphQueryRequest, 
+    LangGraphQueryResponse,
+    AgentStatusResponse,
+    ConversationHistoryResponse,
+    AgentCapabilitiesResponse
+)
+
 # Import configuration
 try:
     from chatbot_ui.core.config import config
@@ -77,12 +87,15 @@ rag_processor: Optional[EnhancedRAGQueryProcessor] = None
 structured_generator: Optional[StructuredResponseGenerator] = None
 vector_db: Optional[EnhancedElectronicsVectorDB] = None
 
+# Global LangGraph handler
+langgraph_handler: Optional[LangGraphAPIHandler] = None
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan context manager for startup and shutdown events."""
     # Startup
-    global rag_processor, structured_generator, vector_db
+    global rag_processor, structured_generator, vector_db, langgraph_handler
     
     logger.info("Starting Amazon Electronics Assistant API...")
     
@@ -127,8 +140,16 @@ async def lifespan(app: FastAPI):
         
         logger.info("RAG processor initialized successfully")
         
+        # Initialize LangGraph handler
+        try:
+            langgraph_handler = LangGraphAPIHandler()
+            logger.info("LangGraph handler initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to initialize LangGraph handler: {e}")
+            langgraph_handler = None
+        
     except Exception as e:
-        logger.error(f"Failed to initialize RAG components: {e}")
+        logger.error(f"Failed to initialize components: {e}")
         raise
     
     yield
@@ -142,6 +163,13 @@ async def lifespan(app: FastAPI):
             logger.info("Vector database closed")
         except Exception as e:
             logger.error(f"Error closing vector database: {e}")
+    
+    if langgraph_handler:
+        try:
+            # Cleanup LangGraph resources if needed
+            logger.info("LangGraph handler cleaned up")
+        except Exception as e:
+            logger.error(f"Error cleaning up LangGraph handler: {e}")
 
 
 # FastAPI app
@@ -335,6 +363,173 @@ async def get_database_stats():
         raise
     except Exception as e:
         logger.error(f"Database stats retrieval failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+def get_langgraph_handler() -> LangGraphAPIHandler:
+    """Dependency to get LangGraph handler."""
+    if not langgraph_handler:
+        raise HTTPException(status_code=503, detail="LangGraph handler not available")
+    return langgraph_handler
+
+
+# LangGraph API endpoints
+
+@app.post("/agent/query", response_model=LangGraphQueryResponse)
+async def query_with_agent(
+    request: LangGraphQueryRequest,
+    handler: LangGraphAPIHandler = Depends(get_langgraph_handler)
+):
+    """Query using LangGraph agent workflow."""
+    try:
+        response = await handler.process_query_with_agent(request)
+        return response
+    except Exception as e:
+        logger.error(f"Agent query failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/agent/status/{session_id}", response_model=AgentStatusResponse)
+async def get_agent_status(
+    session_id: str,
+    handler: LangGraphAPIHandler = Depends(get_langgraph_handler)
+):
+    """Get agent status for a session."""
+    try:
+        status = handler.get_agent_status(session_id)
+        return status
+    except Exception as e:
+        logger.error(f"Failed to get agent status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/agent/history/{session_id}", response_model=ConversationHistoryResponse)
+async def get_conversation_history(
+    session_id: str,
+    handler: LangGraphAPIHandler = Depends(get_langgraph_handler)
+):
+    """Get conversation history for a session."""
+    try:
+        history = handler.get_conversation_history(session_id)
+        return history
+    except Exception as e:
+        logger.error(f"Failed to get conversation history: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/agent/conversation/{session_id}")
+async def clear_conversation(
+    session_id: str,
+    handler: LangGraphAPIHandler = Depends(get_langgraph_handler)
+):
+    """Clear conversation history for a session."""
+    try:
+        success = handler.clear_conversation(session_id)
+        return {"success": success, "session_id": session_id}
+    except Exception as e:
+        logger.error(f"Failed to clear conversation: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/agent/capabilities", response_model=AgentCapabilitiesResponse)
+async def get_agent_capabilities(
+    handler: LangGraphAPIHandler = Depends(get_langgraph_handler)
+):
+    """Get agent capabilities and available features."""
+    try:
+        capabilities = handler.get_agent_capabilities()
+        return capabilities
+    except Exception as e:
+        logger.error(f"Failed to get agent capabilities: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/agent/statistics")
+async def get_agent_statistics(
+    handler: LangGraphAPIHandler = Depends(get_langgraph_handler)
+):
+    """Get agent system statistics."""
+    try:
+        stats = handler.get_session_statistics()
+        return {
+            "statistics": stats,
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
+        }
+    except Exception as e:
+        logger.error(f"Failed to get agent statistics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Health check and monitoring endpoints
+
+@app.get("/health/system")
+async def system_health_check(quick: bool = False):
+    """Comprehensive system health check."""
+    try:
+        from langgraph_integration.monitoring.health_checker import HealthChecker
+        
+        health_checker = HealthChecker()
+        health_status = health_checker.check_system_health(quick_check=quick)
+        
+        # Return appropriate HTTP status based on health
+        if health_status.overall_status.value == "healthy":
+            return health_status.to_dict()
+        elif health_status.overall_status.value == "degraded":
+            return JSONResponse(
+                status_code=200,  # Still operational
+                content=health_status.to_dict()
+            )
+        else:
+            return JSONResponse(
+                status_code=503,  # Service unavailable
+                content=health_status.to_dict()
+            )
+            
+    except Exception as e:
+        logger.error(f"System health check failed: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "overall_status": "unhealthy",
+                "error": str(e),
+                "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
+            }
+        )
+
+
+@app.get("/health/history")
+async def get_health_history(hours: int = 24):
+    """Get system health history."""
+    try:
+        from langgraph_integration.monitoring.health_checker import HealthChecker
+        
+        health_checker = HealthChecker()
+        history = health_checker.get_health_history(hours=hours)
+        
+        return {
+            "history": history,
+            "period_hours": hours,
+            "total_checks": len(history)
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get health history: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/health/component/{component_name}")
+async def get_component_health(component_name: str, hours: int = 24):
+    """Get health trends for a specific component."""
+    try:
+        from langgraph_integration.monitoring.health_checker import HealthChecker
+        
+        health_checker = HealthChecker()
+        trends = health_checker.get_component_trends(component_name, hours=hours)
+        
+        return trends
+        
+    except Exception as e:
+        logger.error(f"Failed to get component health: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
