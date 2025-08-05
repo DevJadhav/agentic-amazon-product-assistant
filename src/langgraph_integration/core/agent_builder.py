@@ -13,6 +13,7 @@ from langgraph.graph.state import CompiledStateGraph
 
 from .state_schemas import AgentState, create_initial_state, update_state_step
 from .base_agent import BaseAgent, ProductSearchAgent, ReviewAnalysisAgent
+from .router.master_graph import MasterAgentGraph
 from .utils import (
     create_agent_config, 
     extract_entities_from_query, 
@@ -795,13 +796,223 @@ Review Summary {i}:
         )
         return updated_state
     
+    def create_master_routing_graph(self) -> CompiledStateGraph:
+        """
+        Create the master routing graph with intelligent agent selection.
+        
+        This method creates the main orchestration graph that provides:
+        - Intent classification and routing
+        - Specialized agent execution (Product QA and Shopping Cart)
+        - Clarification handling for ambiguous queries
+        - Response finalization with consistent formatting
+        
+        Returns:
+            CompiledStateGraph: Compiled master routing graph ready for execution
+        """
+        
+        master_agent_graph = MasterAgentGraph(self.config, agent_builder=self)
+        return master_agent_graph.compile_graph()
+    
+    def create_product_qa_agent_graph(self) -> CompiledStateGraph:
+        """
+        Create the Product QA Agent graph for product-related queries.
+        
+        This is an alias for the ambient agent graph with improved naming
+        to reflect its role in the master routing system.
+        
+        Returns:
+            CompiledStateGraph: Compiled Product QA Agent graph
+        """
+        return self.create_ambient_agent_graph()
+    
+    def create_shopping_cart_agent_graph(self) -> CompiledStateGraph:
+        """
+        Create the Shopping Cart Agent graph for cart management operations.
+        
+        Note: This method creates a standalone cart agent graph. In the master
+        routing system, the cart agent is integrated directly into the master graph.
+        
+        Returns:
+            CompiledStateGraph: Compiled Shopping Cart Agent graph
+        """
+        from .router.master_graph import ShoppingCartAgent
+        
+        cart_agent = ShoppingCartAgent(self.config.get("cart_agent", {}))
+        return cart_agent.compile_graph()
+    
     def get_available_graphs(self) -> Dict[str, str]:
-        """Get list of available agent graphs."""
+        """
+        Get list of available agent graphs with improved naming and organization.
+        
+        Returns:
+            Dict[str, str]: Dictionary mapping graph names to descriptions
+        """
         
         return {
-            "ambient": "Main ambient style agent for general queries",
-            "product_search": "Specialized agent for product search",
-            "review_analysis": "Specialized agent for review analysis", 
-            "comparison": "Specialized agent for product comparison",
-            "recommendation": "Specialized agent for product recommendations"
+            # Master orchestration graph
+            "master_routing_graph": "Master routing graph with intelligent agent selection and orchestration",
+            
+            # Specialized agent graphs
+            "product_qa_agent": "Product QA Agent for search, analysis, and recommendations",
+            "shopping_cart_agent": "Shopping Cart Agent for cart management operations",
+            
+            # Legacy/specialized workflow graphs
+            "ambient_agent": "Main ambient style agent for general product queries",
+            "product_search_agent": "Specialized agent for product search workflows",
+            "review_analysis_agent": "Specialized agent for review analysis workflows", 
+            "product_comparison_agent": "Specialized agent for product comparison workflows",
+            "product_recommendation_agent": "Specialized agent for product recommendation workflows"
+        }
+    
+    def get_agent_hierarchy_mapping(self) -> Dict[str, Any]:
+        """
+        Get the agent hierarchy and relationship mapping.
+        
+        Returns:
+            Dict[str, Any]: Complete agent hierarchy documentation
+        """
+        
+        return {
+            "orchestration_layer": {
+                "master_routing_graph": {
+                    "role": "orchestration",
+                    "description": "Top-level routing and agent coordination",
+                    "manages": ["product_qa_agent", "shopping_cart_agent"],
+                    "components": ["intent_router", "clarification_handler"],
+                    "routing_logic": "intent_classification_based"
+                }
+            },
+            "specialized_agents": {
+                "product_qa_agent": {
+                    "role": "product_information",
+                    "description": "Handles product search, analysis, and recommendations",
+                    "tools": ["vector_search_mcp", "product_analysis_mcp"],
+                    "tool_type": "mcp_tools",
+                    "workflows": ["search", "analysis", "comparison", "recommendation"],
+                    "fallback_for": ["unclear_product_queries", "general_queries"]
+                },
+                "shopping_cart_agent": {
+                    "role": "cart_management",
+                    "description": "Manages shopping cart operations and state",
+                    "tools": ["add_to_cart", "remove_from_cart", "list_cart", "clear_cart"],
+                    "tool_type": "function_calling",
+                    "workflows": ["add", "remove", "list", "clear"],
+                    "state_management": "persistent_database"
+                }
+            },
+            "legacy_agents": {
+                "ambient_agent": {
+                    "role": "general_purpose",
+                    "description": "Legacy ambient agent, now integrated as Product QA Agent",
+                    "status": "legacy",
+                    "replacement": "product_qa_agent"
+                },
+                "product_search_agent": {
+                    "role": "specialized_workflow",
+                    "description": "Specialized product search workflow",
+                    "status": "legacy",
+                    "integrated_into": "product_qa_agent"
+                },
+                "review_analysis_agent": {
+                    "role": "specialized_workflow", 
+                    "description": "Specialized review analysis workflow",
+                    "status": "legacy",
+                    "integrated_into": "product_qa_agent"
+                },
+                "product_comparison_agent": {
+                    "role": "specialized_workflow",
+                    "description": "Specialized product comparison workflow", 
+                    "status": "legacy",
+                    "integrated_into": "product_qa_agent"
+                },
+                "product_recommendation_agent": {
+                    "role": "specialized_workflow",
+                    "description": "Specialized product recommendation workflow",
+                    "status": "legacy", 
+                    "integrated_into": "product_qa_agent"
+                }
+            },
+            "routing_patterns": {
+                "intent_based_routing": {
+                    "description": "Routes based on classified user intent",
+                    "confidence_threshold": self.config.get("router", {}).get("confidence_threshold", 0.7),
+                    "fallback_strategy": "clarification_request"
+                },
+                "clarification_handling": {
+                    "description": "Handles ambiguous or unclear user queries",
+                    "max_attempts": self.config.get("clarification", {}).get("max_clarification_attempts", 3),
+                    "fallback_agent": "product_qa_agent"
+                }
+            }
+        }
+    
+    def get_graph_naming_conventions(self) -> Dict[str, Any]:
+        """
+        Get the graph naming conventions and standards.
+        
+        Returns:
+            Dict[str, Any]: Naming conventions documentation
+        """
+        
+        return {
+            "node_naming_conventions": {
+                "pattern": "action_description_and_purpose",
+                "examples": [
+                    "intent_classification_and_routing",
+                    "product_qa_agent_execution", 
+                    "shopping_cart_agent_execution",
+                    "clarification_request_handling",
+                    "response_finalization_and_formatting"
+                ],
+                "guidelines": [
+                    "Use descriptive names that clearly indicate the node's purpose",
+                    "Include both the action and the domain/context",
+                    "Use underscores to separate words",
+                    "Avoid abbreviations unless widely understood",
+                    "Be consistent across similar node types"
+                ]
+            },
+            "edge_naming_conventions": {
+                "pattern": "action_to_target",
+                "examples": [
+                    "route_to_qa_agent",
+                    "route_to_cart_agent",
+                    "request_clarification"
+                ],
+                "guidelines": [
+                    "Use verb phrases that describe the routing action",
+                    "Include the target destination",
+                    "Be consistent with conditional edge naming",
+                    "Make routing logic clear from the name"
+                ]
+            },
+            "agent_naming_conventions": {
+                "pattern": "domain_agent_type",
+                "examples": [
+                    "product_qa_agent",
+                    "shopping_cart_agent",
+                    "master_routing_graph"
+                ],
+                "guidelines": [
+                    "Include the domain or specialization",
+                    "Use 'agent' suffix for execution agents",
+                    "Use 'graph' suffix for orchestration graphs",
+                    "Avoid generic names like 'main' or 'default'"
+                ]
+            },
+            "method_naming_conventions": {
+                "pattern": "action_domain_purpose",
+                "examples": [
+                    "_execute_intent_router",
+                    "_execute_product_qa_agent",
+                    "_handle_clarification_request",
+                    "_finalize_and_format_response"
+                ],
+                "guidelines": [
+                    "Use descriptive method names that indicate purpose",
+                    "Prefix private methods with underscore",
+                    "Include the domain or component being acted upon",
+                    "Use consistent verb patterns (execute, handle, process, etc.)"
+                ]
+            }
         }

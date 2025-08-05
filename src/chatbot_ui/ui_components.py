@@ -32,6 +32,10 @@ class UITheme:
     ICON_METRICS = "📊"
     ICON_PERFORMANCE = "⚡"
     ICON_BUSINESS = "📈"
+    ICON_CART = "🛒"
+    ICON_ADD = "➕"
+    ICON_REMOVE = "➖"
+    ICON_CLEAR = "🗑️"
     
     # Colors (for custom HTML)
     COLOR_PRIMARY = "#90CAF9"
@@ -306,6 +310,202 @@ class SessionManager:
         
         if query not in st.session_state.query_history:
             st.session_state.query_history.append(query)
+
+
+class CartStateManager:
+    """Manages shopping cart state in Streamlit frontend."""
+    
+    def __init__(self):
+        self.session_key = "shopping_cart_data"
+        self.cart_updated_key = "cart_updated"
+        self.cart_error_key = "cart_error"
+    
+    def update_cart_display(self, cart_data: Dict[str, Any]):
+        """Update cart display with latest data."""
+        st.session_state[self.session_key] = cart_data
+        st.session_state[self.cart_updated_key] = True
+        # Clear any previous errors
+        if self.cart_error_key in st.session_state:
+            del st.session_state[self.cart_error_key]
+    
+    def get_cart_data(self) -> Dict[str, Any]:
+        """Get current cart data from session state."""
+        return st.session_state.get(self.session_key, {
+            "items": [],
+            "total_items": 0,
+            "total_value": 0.0
+        })
+    
+    def set_cart_error(self, error_message: str):
+        """Set cart error state."""
+        st.session_state[self.cart_error_key] = error_message
+    
+    def get_cart_error(self) -> Optional[str]:
+        """Get current cart error if any."""
+        return st.session_state.get(self.cart_error_key)
+    
+    def clear_cart_error(self):
+        """Clear cart error state."""
+        if self.cart_error_key in st.session_state:
+            del st.session_state[self.cart_error_key]
+    
+    def was_cart_updated(self) -> bool:
+        """Check if cart was recently updated."""
+        return st.session_state.get(self.cart_updated_key, False)
+    
+    def clear_update_flag(self):
+        """Clear the cart update flag."""
+        st.session_state[self.cart_updated_key] = False
+    
+    def render_cart_sidebar(self):
+        """Render cart contents in sidebar tab with real-time updates."""
+        # Get cart data with fallback to persistent data
+        cart_data = self.get_cart_data()
+        
+        # Try to get persistent cart data if local data is empty
+        if cart_data.get("total_items", 0) == 0 and hasattr(st.session_state, 'persistent_cart_data'):
+            persistent_data = st.session_state.persistent_cart_data
+            if persistent_data.get("total_items", 0) > 0:
+                cart_data = persistent_data
+                # Update local cart data with persistent data
+                self.update_cart_display(cart_data)
+        
+        cart_error = self.get_cart_error()
+        
+        # Display cart error if present
+        if cart_error:
+            st.error(f"Cart Error: {cart_error}")
+            if st.button("Clear Error", key="clear_cart_error"):
+                self.clear_cart_error()
+                st.rerun()
+        
+        # Display cart update notification with auto-clear
+        if self.was_cart_updated():
+            st.success("🛒 Cart updated!")
+            # Auto-clear the flag after a short delay
+            time.sleep(0.5)
+            self.clear_update_flag()
+        
+        # Real-time update indicator
+        if hasattr(st.session_state, 'cart_update_counter'):
+            update_count = st.session_state.cart_update_counter
+            if update_count > 0:
+                st.caption(f"🔄 Last updated: {time.strftime('%H:%M:%S')}")
+        
+        # Cart header with item count and value
+        total_items = cart_data.get("total_items", 0)
+        total_value = cart_data.get("total_value", 0.0)
+        
+        col1, col2 = st.columns([2, 1])
+        with col1:
+            st.subheader(f"🛒 Shopping Cart")
+        with col2:
+            if total_items > 0:
+                st.metric("Items", total_items)
+        
+        # Display total value if available
+        if total_value > 0:
+            st.metric("Total Value", f"${total_value:.2f}")
+        
+        # Display cart contents
+        items = cart_data.get("items", [])
+        
+        if not items:
+            self._render_empty_cart()
+        else:
+            self._render_cart_items(items, cart_data)
+        
+        # Add refresh button for manual updates
+        if st.button("🔄 Refresh Cart", key="refresh_cart", help="Manually refresh cart data"):
+            # Force refresh by clearing local data
+            if self.session_key in st.session_state:
+                del st.session_state[self.session_key]
+            st.rerun()
+    
+    def _render_empty_cart(self):
+        """Render empty cart state."""
+        st.info("Your cart is empty")
+        st.markdown("""
+        **Start shopping by:**
+        - Asking about products you're interested in
+        - Requesting product recommendations
+        - Saying "add [product] to cart" during conversations
+        """)
+        
+        # Quick add suggestions
+        st.markdown("**Quick suggestions:**")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if st.button("🎧 Add Headphones", key="quick_add_headphones"):
+                st.info("Try asking: 'Add wireless headphones to my cart'")
+        
+        with col2:
+            if st.button("📱 Add Phone Case", key="quick_add_case"):
+                st.info("Try asking: 'Add iPhone case to my cart'")
+    
+    def _render_cart_items(self, items: List[Dict[str, Any]], cart_data: Dict[str, Any]):
+        """Render cart items with details."""
+        # Cart summary
+        total_value = cart_data.get("total_value", 0.0)
+        if total_value > 0:
+            st.metric("Cart Total", f"${total_value:.2f}")
+        
+        st.divider()
+        
+        # Individual items
+        for i, item in enumerate(items):
+            with st.container():
+                # Item header
+                col1, col2 = st.columns([3, 1])
+                
+                with col1:
+                    product_title = item.get("product_title", "Unknown Product")
+                    st.write(f"**{product_title}**")
+                
+                with col2:
+                    quantity = item.get("quantity", 1)
+                    st.write(f"Qty: {quantity}")
+                
+                # Item details
+                product_price = item.get("product_price")
+                if product_price:
+                    st.caption(f"Price: ${product_price:.2f}")
+                
+                # Item metadata
+                metadata = item.get("product_metadata", {})
+                if metadata:
+                    with st.expander("Details", expanded=False):
+                        for key, value in metadata.items():
+                            st.write(f"**{key.title()}:** {value}")
+                
+                # Item actions
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    if st.button(f"Remove", key=f"remove_item_{i}"):
+                        st.info(f"Try saying: 'Remove {product_title} from cart'")
+                
+                with col2:
+                    if st.button(f"Update Qty", key=f"update_qty_{i}"):
+                        st.info(f"Try saying: 'Change {product_title} quantity to 2'")
+                
+                if i < len(items) - 1:
+                    st.divider()
+        
+        # Cart actions
+        st.divider()
+        st.markdown("**Cart Actions:**")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if st.button("Clear Cart", key="clear_cart_action"):
+                st.info("Try saying: 'Clear my cart' or 'Remove all items'")
+        
+        with col2:
+            if st.button("View Details", key="view_cart_details"):
+                st.info("Try saying: 'Show my cart' or 'What's in my cart?'")
 
 
 class SystemHealthChecker:

@@ -13,16 +13,42 @@ scrape_configs:
 
   - job_name: 'langgraph-app'
     static_configs:
-      - targets: ['app:8000']
+      - targets: ['langgraph_app:8000']
     metrics_path: '/metrics'
     scrape_interval: 30s
+    scrape_timeout: 10s
+
+  - job_name: 'streamlit-app'
+    static_configs:
+      - targets: ['langgraph_app:8501']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+    scrape_timeout: 10s
 
   - job_name: 'postgres'
     static_configs:
       - targets: ['postgres:5432']
     scrape_interval: 30s
+    scrape_timeout: 10s
 
   - job_name: 'redis'
     static_configs:
       - targets: ['redis:6379']
     scrape_interval: 30s
+    scrape_timeout: 10s
+
+  # Shopping cart specific metrics
+  - job_name: 'shopping-cart-metrics'
+    static_configs:
+      - targets: ['langgraph_app:8000']
+    metrics_path: '/metrics/cart'
+    scrape_interval: 60s
+    scrape_timeout: 15s
+
+  # Router and intent classification metrics
+  - job_name: 'router-metrics'
+    static_configs:
+      - targets: ['langgraph_app:8000']
+    metrics_path: '/metrics/router'
+    scrape_interval: 60s
+    scrape_timeout: 15s

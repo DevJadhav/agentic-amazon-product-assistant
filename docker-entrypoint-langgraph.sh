@@ -31,6 +31,7 @@ import sys
 sys.path.append('src')
 try:
     from langgraph_integration.state.database import DatabaseManager
+    from langgraph_integration.state.migrations import run_migrations, check_migration_status
     import logging
     logging.basicConfig(level=logging.INFO)
     
@@ -38,6 +39,18 @@ try:
     db_manager = DatabaseManager()
     db_manager.initialize()
     print('✅ Database schema initialized successfully')
+    
+    # Run shopping cart migrations
+    print('🛒 Running shopping cart migrations...')
+    migration_results = run_migrations()
+    
+    for migration, success in migration_results.items():
+        status = '✅' if success else '❌'
+        print(f'  {status} {migration}: {\"SUCCESS\" if success else \"FAILED\"}')
+    
+    # Check migration status
+    status = check_migration_status()
+    print(f'📊 Migration Summary: {status[\"successful_migrations\"]}/{status[\"total_migrations\"]} successful')
         
 except Exception as e:
     print(f'⚠️  Database initialization failed: {e}')

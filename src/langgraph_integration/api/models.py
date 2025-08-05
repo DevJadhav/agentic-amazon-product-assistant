@@ -39,6 +39,44 @@ class LangGraphQueryResponse(BaseModel):
     error_state: Optional[str] = None
 
 
+class EnhancedQueryResponse(BaseModel):
+    """Enhanced response model with cart data and routing information."""
+    
+    # Core response fields
+    query: str
+    response: str
+    session_id: str
+    conversation_turn: int
+    
+    # Agent and routing information
+    agent_workflow: str
+    routing_decision: Optional[str] = None
+    agent_used: str
+    intent_confidence: Optional[float] = None
+    
+    # Cart data fields
+    cart_data: Optional[List[Dict[str, Any]]] = None
+    cart_updated: bool = False
+    cart_item_count: int = 0
+    cart_total: Optional[float] = None
+    
+    # Tool usage tracking
+    tools_called: List[str] = []
+    
+    # Context and metadata
+    context: Dict[str, Any]
+    metadata: Dict[str, Any]
+    
+    # Performance and workflow tracking
+    processing_time: float
+    workflow_steps: List[str]
+    products_found: int = 0
+    reviews_found: int = 0
+    
+    # Error handling
+    error_state: Optional[str] = None
+
+
 class AgentStatusResponse(BaseModel):
     """Response model for agent status information."""
     

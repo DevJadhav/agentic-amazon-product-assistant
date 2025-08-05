@@ -380,7 +380,12 @@ verify_deployment() {
 main() {
     log "🚀 Starting AI Product Assistant deployment..."
     
-    # Create production Docker Compose
+    # Use existing production Docker Compose
+    if [[ ! -f "$COMPOSE_FILE" ]]; then
+        log "📝 Using production Docker Compose configuration..."
+        COMPOSE_FILE="docker-compose.production.yml"
+    fi
+    
     if [[ ! -f "$COMPOSE_FILE" ]]; then
         log "📝 Creating production Docker Compose configuration..."
         cat > $COMPOSE_FILE << 'EOF'
@@ -468,13 +473,41 @@ EOF
     setup_environment
     backup_deployment
     
+    # Run database migrations
+    log "🗄️ Running database migrations..."
+    if [[ -f "./deploy/migrate-database.sh" ]]; then
+        chmod +x ./deploy/migrate-database.sh
+        if ./deploy/migrate-database.sh; then
+            success "Database migrations completed"
+        else
+            error "Database migrations failed"
+            rollback_deployment
+            exit 1
+        fi
+    else
+        warn "Database migration script not found, skipping migrations"
+    fi
+    
     if deploy_application; then
         setup_monitoring
         if verify_deployment; then
-            success "🎉 Deployment completed successfully!"
+            success "🎉 Enhanced AI Product Assistant deployment completed successfully!"
             log "📊 Application is running at: http://localhost:8501"
-            log "📊 Database is running at: http://localhost:8080"
+            log "📊 FastAPI is running at: http://localhost:8000"
+            log "📊 Database is running at: http://localhost:5432"
+            log "📊 Vector DB is running at: http://localhost:8080"
             log "📊 Monitoring is running at: http://localhost:9090"
+            log "📊 Grafana is running at: http://localhost:3000"
+            log ""
+            log "🛒 Shopping Cart Features:"
+            log "   - Cart management: ✅ Enabled"
+            log "   - Real-time updates: ✅ Enabled"
+            log "   - Session persistence: ✅ Enabled"
+            log ""
+            log "🧭 Router Features:"
+            log "   - Intent classification: ✅ Enabled"
+            log "   - Intelligent routing: ✅ Enabled"
+            log "   - Clarification handling: ✅ Enabled"
         else
             rollback_deployment
             exit 1

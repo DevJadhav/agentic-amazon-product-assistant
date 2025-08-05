@@ -95,7 +95,38 @@ class DatabaseManager:
     def _create_tables(self):
         """Create database tables if they don't exist."""
         
-        create_tables_sql = """
+        # Read the complete SQL initialization script
+        import os
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        init_sql_path = os.path.join(script_dir, 'init.sql')
+        
+        try:
+            with open(init_sql_path, 'r') as f:
+                create_tables_sql = f.read()
+        except FileNotFoundError:
+            # Fallback to basic table creation if init.sql is not found
+            logger.warning("init.sql not found, using fallback table creation")
+            create_tables_sql = self._get_fallback_sql()
+        
+        # Use the pool directly since we're in initialization
+        conn = None
+        try:
+            conn = self.pool.getconn()
+            with conn.cursor() as cursor:
+                cursor.execute(create_tables_sql)
+                conn.commit()
+        finally:
+            if conn:
+                self.pool.putconn(conn)
+        
+        logger.info("Database tables created successfully")
+    
+    def _get_fallback_sql(self):
+        """Fallback SQL for basic table creation."""
+        return """
+        -- Enable UUID extension
+        CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+        
         -- Conversations table
         CREATE TABLE IF NOT EXISTS conversations (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -134,13 +165,6 @@ class DatabaseManager:
         CREATE INDEX IF NOT EXISTS idx_agent_states_conversation_id ON agent_states(conversation_id);
         CREATE INDEX IF NOT EXISTS idx_agent_states_checkpoint_id ON agent_states(checkpoint_id);
         """
-        
-        with self.get_connection() as conn:
-            with conn.cursor() as cursor:
-                cursor.execute(create_tables_sql)
-                conn.commit()
-        
-        logger.info("Database tables created successfully")
     
     @asynccontextmanager
     async def get_async_connection(self):
@@ -155,7 +179,7 @@ class DatabaseManager:
     def get_connection(self):
         """Get database connection from pool."""
         if not self._initialized:
-            self.initialize()
+            raise RuntimeError("Database manager not initialized. Call initialize() first.")
         
         conn = None
         try:
@@ -266,9 +290,23 @@ def run_migrations():
     
     db_manager = get_database_manager()
     
-    # For now, just ensure tables are created
-    # In the future, this could handle schema updates
+    # Ensure basic tables are created
     db_manager.initialize()
+    
+    # Run shopping cart migrations
+    try:
+        from .migrations import run_migrations as run_schema_migrations
+        migration_results = run_schema_migrations()
+        
+        if all(migration_results.values()):
+            logger.info("All database migrations completed successfully")
+        else:
+            logger.warning(f"Some migrations failed: {migration_results}")
+            
+    except ImportError:
+        logger.warning("Migration module not available, skipping schema migrations")
+    except Exception as e:
+        logger.error(f"Failed to run schema migrations: {e}")
     
     logger.info("Database migrations completed")
 

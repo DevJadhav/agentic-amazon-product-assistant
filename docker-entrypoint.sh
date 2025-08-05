@@ -62,6 +62,15 @@ else
     echo "⚠️  Weaviate service unavailable, using embedded storage"
 fi
 
-# Start Streamlit app
+# Start API server in background
+echo "🚀 Starting FastAPI server..."
+cd /app
+python3 src/api/run_server.py &
+API_PID=$!
+
+# Wait a moment for API server to start
+sleep 3
+
+# Start Streamlit app in foreground
 echo "🎯 Starting Streamlit application..."
 exec streamlit run src/chatbot_ui/streamlit_app.py --server.address=0.0.0.0 "$@"

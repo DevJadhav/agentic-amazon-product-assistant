@@ -20,6 +20,7 @@ class StreamlitLangGraphIntegration:
     def __init__(self, api_base_url: str = API_BASE_URL):
         """Initialize Streamlit LangGraph integration."""
         self.api_base_url = api_base_url
+        self._initialize_cart_manager()
     
     def initialize_session(self) -> str:
         """Initialize or get existing session ID."""
@@ -40,6 +41,87 @@ class StreamlitLangGraphIntegration:
             }
         
         return st.session_state.langgraph_session_id
+    
+    def _initialize_cart_manager(self):
+        """Initialize cart state manager."""
+        if 'cart_manager' not in st.session_state:
+            try:
+                from chatbot_ui.ui_components import CartStateManager
+                st.session_state.cart_manager = CartStateManager()
+            except (ImportError, AttributeError):
+                # Fallback if ui_components not available or streamlit not properly initialized
+                st.session_state.cart_manager = None
+    
+    def _update_cart_state(self, cart_data: List[Dict[str, Any]], cart_updated: bool):
+        """Update cart state from API response."""
+        try:
+            # Ensure cart manager is available
+            if 'cart_manager' not in st.session_state or st.session_state.cart_manager is None:
+                self._initialize_cart_manager()
+            
+            if st.session_state.cart_manager is not None:
+                # Transform cart data to expected format
+                formatted_cart_data = {
+                    "items": cart_data if cart_data else [],
+                    "total_items": sum(item.get("quantity", 0) for item in (cart_data or [])),
+                    "total_value": sum(
+                        item.get("quantity", 0) * item.get("product_price", 0) 
+                        for item in (cart_data or [])
+                        if item.get("product_price") is not None
+                    )
+                }
+                
+                # Update cart display
+                st.session_state.cart_manager.update_cart_display(formatted_cart_data)
+                
+                # Store cart update notification with enhanced details
+                if cart_updated:
+                    # Determine the type of cart operation for better messaging
+                    operation_type = "updated"
+                    if formatted_cart_data["total_items"] == 0:
+                        operation_type = "cleared"
+                    elif len(cart_data or []) == 1 and cart_data[0].get("quantity", 0) > 0:
+                        operation_type = "item added"
+                    
+                    st.session_state.cart_update_notification = {
+                        "message": f"Cart {operation_type} successfully!",
+                        "timestamp": time.time(),
+                        "type": "success",
+                        "details": {
+                            "total_items": formatted_cart_data["total_items"],
+                            "total_value": formatted_cart_data["total_value"],
+                            "operation": operation_type
+                        }
+                    }
+                    
+                    # Force UI refresh by updating a counter
+                    if 'cart_update_counter' not in st.session_state:
+                        st.session_state.cart_update_counter = 0
+                    st.session_state.cart_update_counter += 1
+            else:
+                # Cart manager not available, just store notification
+                if cart_updated:
+                    st.session_state.cart_update_notification = {
+                        "message": "Cart updated (display unavailable)",
+                        "timestamp": time.time(),
+                        "type": "info",
+                        "details": {}
+                    }
+        except Exception as e:
+            # Handle cart update errors gracefully
+            if hasattr(st.session_state, 'cart_manager') and st.session_state.cart_manager is not None:
+                try:
+                    st.session_state.cart_manager.set_cart_error(f"Failed to update cart: {str(e)}")
+                except:
+                    pass
+            
+            # Store error notification
+            st.session_state.cart_update_notification = {
+                "message": f"Cart update failed: {str(e)}",
+                "timestamp": time.time(),
+                "type": "error",
+                "details": {"error": str(e)}
+            }
     
     def send_message_to_agent(
         self, 
@@ -83,6 +165,17 @@ class StreamlitLangGraphIntegration:
                 st.session_state.langgraph_conversation_turn = result.get("conversation_turn", 0)
                 st.session_state.langgraph_session_metadata["total_queries"] += 1
                 
+                # Process cart data if present
+                cart_data = result.get("cart_data")
+                cart_updated = result.get("cart_updated", False)
+                
+                if cart_data is not None or cart_updated:
+                    # Update cart state in session
+                    self._update_cart_state(cart_data, cart_updated)
+                    
+                    # Store cart data for persistence
+                    self._persist_cart_data(cart_data, result.get("cart_item_count", 0), result.get("cart_total"))
+                
                 # Add to history
                 history_entry = {
                     "timestamp": datetime.now().isoformat(),
@@ -93,7 +186,12 @@ class StreamlitLangGraphIntegration:
                     "products_found": result.get("products_found", 0),
                     "reviews_found": result.get("reviews_found", 0),
                     "workflow_steps": result.get("workflow_steps", []),
-                    "error_state": result.get("error_state")
+                    "error_state": result.get("error_state"),
+                    "cart_updated": cart_updated,
+                    "cart_item_count": result.get("cart_item_count", 0),
+                    "routing_decision": result.get("routing_decision"),
+                    "agent_used": result.get("agent_used", "unknown"),
+                    "tools_called": result.get("tools_called", [])
                 }
                 
                 if 'langgraph_agent_history' not in st.session_state:
@@ -104,7 +202,9 @@ class StreamlitLangGraphIntegration:
                 return {
                     "success": True,
                     "response": result.get("response", ""),
-                    "data": result
+                    "data": result,
+                    "cart_updated": cart_updated,
+                    "cart_data": cart_data
                 }
             else:
                 return {
@@ -280,6 +380,89 @@ class StreamlitLangGraphIntegration:
                 enabled_features = [k for k, v in features.items() if v]
                 st.write(f"• Features: {len(enabled_features)} enabled")
     
+    def display_cart_notifications(self):
+        """Display cart update notifications with enhanced details."""
+        if 'cart_update_notification' in st.session_state:
+            notification = st.session_state.cart_update_notification
+            
+            # Only show recent notifications (within last 8 seconds for better UX)
+            if time.time() - notification["timestamp"] < 8:
+                details = notification.get("details", {})
+                
+                if notification["type"] == "success":
+                    # Enhanced success message with cart details
+                    message = f"🛒 {notification['message']}"
+                    if details.get("total_items", 0) > 0:
+                        message += f" ({details['total_items']} items"
+                        if details.get("total_value", 0) > 0:
+                            message += f", ${details['total_value']:.2f}"
+                        message += ")"
+                    
+                    st.success(message)
+                    
+                    # Show additional visual feedback for specific operations
+                    if details.get("operation") == "item added":
+                        st.balloons()  # Celebratory animation for adding items
+                        
+                elif notification["type"] == "error":
+                    st.error(f"🛒 {notification['message']}")
+                    
+                    # Show error details if available
+                    if details.get("error"):
+                        with st.expander("Error Details", expanded=False):
+                            st.code(details["error"])
+                else:
+                    st.info(f"🛒 {notification['message']}")
+            else:
+                # Clear old notifications
+                del st.session_state.cart_update_notification
+    
+    def _persist_cart_data(self, cart_data: List[Dict[str, Any]], item_count: int, cart_total: Optional[float]):
+        """Persist cart data in session state for cross-tab access."""
+        try:
+            # Store cart data that can be accessed from any tab
+            st.session_state.persistent_cart_data = {
+                "items": cart_data if cart_data else [],
+                "total_items": item_count,
+                "total_value": cart_total or 0.0,
+                "last_updated": time.time(),
+                "session_id": st.session_state.get('langgraph_session_id', 'unknown')
+            }
+            
+            # Update cart history for analytics
+            if 'cart_history' not in st.session_state:
+                st.session_state.cart_history = []
+            
+            # Add to cart history (keep last 10 operations)
+            st.session_state.cart_history.append({
+                "timestamp": time.time(),
+                "item_count": item_count,
+                "total_value": cart_total or 0.0,
+                "operation": "update"
+            })
+            
+            # Keep only recent history
+            if len(st.session_state.cart_history) > 10:
+                st.session_state.cart_history = st.session_state.cart_history[-10:]
+                
+        except Exception as e:
+            # Log error but don't fail the main operation
+            if hasattr(st.session_state, 'cart_manager') and st.session_state.cart_manager is not None:
+                try:
+                    st.session_state.cart_manager.set_cart_error(f"Failed to persist cart data: {str(e)}")
+                except:
+                    pass
+
+    def get_persistent_cart_data(self) -> Dict[str, Any]:
+        """Get persistent cart data from session state."""
+        return st.session_state.get('persistent_cart_data', {
+            "items": [],
+            "total_items": 0,
+            "total_value": 0.0,
+            "last_updated": 0,
+            "session_id": "unknown"
+        })
+
     def display_conversation_history(self) -> None:
         """Display conversation history in sidebar."""
         
@@ -304,6 +487,10 @@ class StreamlitLangGraphIntegration:
                     
                     if entry['reviews_found'] > 0:
                         st.write(f"**Reviews:** {entry['reviews_found']}")
+                    
+                    # Show cart information if available
+                    if entry.get('cart_updated'):
+                        st.write(f"**Cart:** Updated ({entry.get('cart_item_count', 0)} items)")
 
 
 def create_langgraph_integration(api_base_url: str = API_BASE_URL) -> StreamlitLangGraphIntegration:

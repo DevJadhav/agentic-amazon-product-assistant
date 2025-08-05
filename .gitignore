@@ -3,7 +3,6 @@ __pycache__/
 .pytest_cache/
 .kiro/
 
-
 # IDE and Editor files
 .vscode/
 .idea/
@@ -28,7 +27,7 @@ __pypackages__/
 # Environments
 .env
 .venv
-
+*.logs
 
 
 

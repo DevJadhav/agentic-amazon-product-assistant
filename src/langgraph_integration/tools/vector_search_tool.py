@@ -70,11 +70,17 @@ class VectorSearchTool(BaseTool):
     
     args_schema: Type[VectorSearchInput] = VectorSearchInput
     
+    # Declare vector_db as a Pydantic field
+    vector_db: Optional[EnhancedElectronicsVectorDB] = Field(default=None, exclude=True)
+    
     def __init__(self, vector_db: Optional[EnhancedElectronicsVectorDB] = None, **kwargs):
         """Initialize vector search tool."""
+        # Set vector_db before calling super().__init__()
+        if vector_db is not None:
+            kwargs['vector_db'] = vector_db
+        
         super().__init__(**kwargs)
         
-        self.vector_db = vector_db
         self.query_processor: Optional[EnhancedRAGQueryProcessor] = None
         self.logger = logging.getLogger(__name__)
         

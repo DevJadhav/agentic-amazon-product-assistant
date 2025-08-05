@@ -1,0 +1,321 @@
+# Production Docker Compose configuration for Enhanced AI Product Assistant
+# Includes shopping cart functionality, router node, and comprehensive monitoring
+
+version: '3.8'
+
+services:
+  # PostgreSQL database for LangGraph state persistence and shopping cart
+  postgres:
+    image: postgres:15-alpine
+    container_name: ai_assistant_postgres_prod
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-langgraph_assistant}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+      # Performance tuning
+      POSTGRES_SHARED_BUFFERS: "256MB"
+      POSTGRES_EFFECTIVE_CACHE_SIZE: "1GB"
+      POSTGRES_WORK_MEM: "4MB"
+      POSTGRES_MAINTENANCE_WORK_MEM: "64MB"
+    volumes:
+      - postgres_data_prod:/var/lib/postgresql/data
+      - ./src/langgraph_integration/state/init.sql:/docker-entrypoint-initdb.d/01-init.sql
+      - ./src/langgraph_integration/state/shopping_cart_schema.sql:/docker-entrypoint-initdb.d/02-shopping-cart.sql
+      - ./deploy/postgres-prod.conf:/etc/postgresql/postgresql.conf
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-langgraph_assistant}"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - ai_assistant_network_prod
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Redis for caching and session management
+  redis:
+    image: redis:7-alpine
+    container_name: ai_assistant_redis_prod
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    volumes:
+      - redis_data_prod:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - ai_assistant_network_prod
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Main application with enhanced functionality
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.production
+    container_name: ai_assistant_app_prod
+    restart: unless-stopped
+    environment:
+      # Database configuration
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-langgraph_assistant}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      
+      # Redis configuration
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      
+      # Weaviate configuration
+      WEAVIATE_HOST: weaviate
+      WEAVIATE_PORT: 8080
+      WEAVIATE_GRPC_PORT: 50051
+      WEAVIATE_USE_EMBEDDED: "false"
+      
+      # API Keys
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      GROQ_API_KEY: ${GROQ_API_KEY}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY}
+      LANGSMITH_API_KEY: ${LANGSMITH_API_KEY}
+      
+      # Production settings
+      ENVIRONMENT: production
+      LOG_LEVEL: ${LOG_LEVEL:-WARNING}
+      PYTHONPATH: /app/src:/app
+      
+      # LangGraph configuration
+      LANGGRAPH_ENABLE_PERSISTENCE: "true"
+      LANGGRAPH_MAX_RETRIES: "3"
+      LANGGRAPH_TIMEOUT: "30"
+      LANGGRAPH_MAX_SESSIONS: ${LANGGRAPH_MAX_SESSIONS:-2000}
+      
+      # Shopping cart configuration
+      SHOPPING_CART_ENABLED: "true"
+      SHOPPING_CART_SESSION_TIMEOUT: ${SHOPPING_CART_SESSION_TIMEOUT:-86400}
+      SHOPPING_CART_MAX_ITEMS: ${SHOPPING_CART_MAX_ITEMS:-100}
+      SHOPPING_CART_CLEANUP_INTERVAL: ${SHOPPING_CART_CLEANUP_INTERVAL:-3600}
+      SHOPPING_CART_DB_POOL_SIZE: ${SHOPPING_CART_DB_POOL_SIZE:-20}
+      SHOPPING_CART_DB_MAX_OVERFLOW: ${SHOPPING_CART_DB_MAX_OVERFLOW:-30}
+      
+      # Router configuration
+      ROUTER_INTENT_CONFIDENCE_THRESHOLD: ${ROUTER_INTENT_CONFIDENCE_THRESHOLD:-0.7}
+      ROUTER_CACHE_ENABLED: "true"
+      ROUTER_CACHE_TTL: ${ROUTER_CACHE_TTL:-300}
+      ROUTER_MAX_CLARIFICATION_ATTEMPTS: ${ROUTER_MAX_CLARIFICATION_ATTEMPTS:-3}
+      
+      # Performance settings
+      LANGGRAPH_CACHE_TTL: "300"
+      
+      # Monitoring and logging
+      ENABLE_PERFORMANCE_MONITORING: "true"
+      ENABLE_CART_METRICS: "true"
+      ENABLE_ROUTER_METRICS: "true"
+      ENABLE_INTENT_CLASSIFICATION_METRICS: "true"
+      METRICS_COLLECTION_INTERVAL: ${METRICS_COLLECTION_INTERVAL:-60}
+      
+      # Security settings
+      STREAMLIT_SERVER_ENABLE_CORS: "false"
+      STREAMLIT_SERVER_ENABLE_XSRF_PROTECTION: "true"
+      
+    ports:
+      - "8000:8000"  # FastAPI
+      - "8501:8501"  # Streamlit
+    volumes:
+      - ./data:/app/data:ro
+      - ./logs:/app/logs
+      - app_cache_prod:/app/cache
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      weaviate:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 120s
+    networks:
+      - ai_assistant_network_prod
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '2.0'
+        reservations:
+          memory: 2G
+          cpus: '1.0'
+
+  # Weaviate vector database
+  weaviate:
+    image: cr.weaviate.io/semitechnologies/weaviate:1.25.0
+    container_name: ai_assistant_weaviate_prod
+    restart: unless-stopped
+    environment:
+      QUERY_DEFAULTS_LIMIT: 25
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: true
+      PERSISTENCE_DATA_PATH: /var/lib/weaviate
+      DEFAULT_VECTORIZER_MODULE: none
+      ENABLE_MODULES: text2vec-openai,text2vec-cohere,text2vec-huggingface,ref2vec-centroid,generative-openai,qna-openai
+      CLUSTER_HOSTNAME: node1
+      LOG_LEVEL: info
+      # Performance settings
+      QUERY_MAXIMUM_RESULTS: 10000
+      TRACK_VECTOR_DIMENSIONS: true
+    volumes:
+      - weaviate_data_prod:/var/lib/weaviate
+    ports:
+      - "8080:8080"
+      - "50051:50051"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/meta"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - ai_assistant_network_prod
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+        reservations:
+          memory: 1G
+          cpus: '0.5'
+
+  # Prometheus monitoring
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: ai_assistant_prometheus_prod
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data_prod:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - ai_assistant_network_prod
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.5'
+
+  # Grafana dashboards
+  grafana:
+    image: grafana/grafana:latest
+    container_name: ai_assistant_grafana_prod
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: false
+      GF_SECURITY_DISABLE_GRAVATAR: true
+      GF_ANALYTICS_REPORTING_ENABLED: false
+      GF_ANALYTICS_CHECK_FOR_UPDATES: false
+      GF_INSTALL_PLUGINS: grafana-piechart-panel
+    volumes:
+      - grafana_data_prod:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+    networks:
+      - ai_assistant_network_prod
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+
+  # Nginx reverse proxy (optional)
+  nginx:
+    image: nginx:alpine
+    container_name: ai_assistant_nginx_prod
+    restart: unless-stopped
+    volumes:
+      - ./deploy/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./deploy/ssl:/etc/nginx/ssl:ro
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - app
+    networks:
+      - ai_assistant_network_prod
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  postgres_data_prod:
+    driver: local
+  redis_data_prod:
+    driver: local
+  weaviate_data_prod:
+    driver: local
+  prometheus_data_prod:
+    driver: local
+  grafana_data_prod:
+    driver: local
+  app_cache_prod:
+    driver: local
+
+networks:
+  ai_assistant_network_prod:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

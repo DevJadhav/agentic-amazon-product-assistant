@@ -123,6 +123,15 @@ def render_agent_interface():
                     temperature=temperature,
                     enable_memory=enable_memory
                 )
+                
+                # Display cart notifications if cart was updated
+                if response_data.get("cart_updated"):
+                    langgraph.display_cart_notifications()
+                    
+                    # Force sidebar refresh to show updated cart
+                    if hasattr(st.session_state, 'cart_manager') and st.session_state.cart_manager is not None:
+                        # Trigger a rerun to refresh the sidebar cart display
+                        st.rerun()
             
             if response_data["success"]:
                 response = response_data["response"]

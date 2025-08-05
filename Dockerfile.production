@@ -98,6 +98,26 @@ fi
 
 # Start the application
 echo "🚀 Starting AI Product Assistant..."
+
+# Start API server in the background with logging
+echo "🌐 Starting API server on port 8000..."
+cd /app
+python3 src/api/run_server.py > /app/logs/api_server.log 2>&1 &
+API_PID=$!
+echo "📝 API server started with PID: $API_PID"
+
+# Give API server a moment to start
+sleep 3
+
+# Check if API server is running
+if ps -p $API_PID > /dev/null; then
+    echo "✅ API server is running"
+else
+    echo "❌ API server failed to start, checking logs..."
+    cat /app/logs/api_server.log
+fi
+
+# Start Streamlit in the foreground
 exec streamlit run /app/src/chatbot_ui/streamlit_app.py \
     --server.port=8501 \
     --server.address=0.0.0.0 \

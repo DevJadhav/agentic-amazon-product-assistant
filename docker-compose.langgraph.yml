@@ -4,7 +4,7 @@
 version: '3.8'
 
 services:
-  # PostgreSQL database for LangGraph state persistence
+  # PostgreSQL database for LangGraph state persistence and shopping cart
   postgres:
     image: postgres:15-alpine
     container_name: langgraph_postgres
@@ -12,16 +12,20 @@ services:
       POSTGRES_DB: langgraph_assistant
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      # Shopping cart configuration
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./src/langgraph_integration/state/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./src/langgraph_integration/state/init.sql:/docker-entrypoint-initdb.d/01-init.sql
+      - ./src/langgraph_integration/state/shopping_cart_schema.sql:/docker-entrypoint-initdb.d/02-shopping-cart.sql
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d langgraph_assistant"]
       interval: 30s
       timeout: 10s
-      retries: 3
+      retries: 5
+      start_period: 60s
     networks:
       - langgraph_network
 
@@ -70,9 +74,27 @@ services:
       LANGGRAPH_MAX_RETRIES: "3"
       LANGGRAPH_TIMEOUT: "30"
       
+      # Shopping cart configuration
+      SHOPPING_CART_ENABLED: "true"
+      SHOPPING_CART_SESSION_TIMEOUT: "86400"  # 24 hours
+      SHOPPING_CART_MAX_ITEMS: "100"
+      SHOPPING_CART_CLEANUP_INTERVAL: "3600"  # 1 hour
+      
+      # Router configuration
+      ROUTER_INTENT_CONFIDENCE_THRESHOLD: "0.7"
+      ROUTER_CACHE_ENABLED: "true"
+      ROUTER_CACHE_TTL: "300"  # 5 minutes
+      ROUTER_MAX_CLARIFICATION_ATTEMPTS: "3"
+      
       # Performance settings
       LANGGRAPH_CACHE_TTL: "300"
       LANGGRAPH_MAX_SESSIONS: "1000"
+      
+      # Monitoring and logging
+      ENABLE_PERFORMANCE_MONITORING: "true"
+      ENABLE_CART_METRICS: "true"
+      ENABLE_ROUTER_METRICS: "true"
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
       
     ports:
       - "8002:8000"  # FastAPI on different port

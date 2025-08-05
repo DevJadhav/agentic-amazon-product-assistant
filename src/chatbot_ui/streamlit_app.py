@@ -8,7 +8,7 @@ import sys
 import time
 import logging
 from pathlib import Path
-from typing import List
+from typing import List, Dict, Any
 
 # Add the parent directory to sys.path to import from rag module
 parent_dir = Path(__file__).parent.parent
@@ -52,6 +52,55 @@ def get_llm_client():
         return ollama.Client(host=config.OLLAMA_BASE_URL)
     else:
         return genai.Client(api_key=config.GOOGLE_API_KEY.get_secret_value())
+
+def process_api_response_for_cart_updates(response_data: Dict[str, Any]):
+    """Process API response and update cart state if cart data is present."""
+    try:
+        # Check if response contains cart data
+        cart_data = response_data.get("cart_data")
+        cart_updated = response_data.get("cart_updated", False)
+        
+        if cart_data is not None or cart_updated:
+            # Initialize cart manager if not available
+            if 'cart_manager' not in st.session_state:
+                from chatbot_ui.ui_components import CartStateManager
+                st.session_state.cart_manager = CartStateManager()
+            
+            # Transform cart data to expected format
+            formatted_cart_data = {
+                "items": cart_data if cart_data else [],
+                "total_items": response_data.get("cart_item_count", 0),
+                "total_value": response_data.get("cart_total", 0.0)
+            }
+            
+            # Update cart display
+            st.session_state.cart_manager.update_cart_display(formatted_cart_data)
+            
+            # Store cart update notification
+            if cart_updated:
+                st.session_state.cart_update_notification = {
+                    "message": "Cart updated from API response!",
+                    "timestamp": time.time(),
+                    "type": "success"
+                }
+                
+                # Force UI refresh
+                if 'cart_update_counter' not in st.session_state:
+                    st.session_state.cart_update_counter = 0
+                st.session_state.cart_update_counter += 1
+                
+            return True
+            
+    except Exception as e:
+        # Handle errors gracefully
+        if 'cart_manager' in st.session_state and st.session_state.cart_manager is not None:
+            try:
+                st.session_state.cart_manager.set_cart_error(f"Failed to process cart update: {str(e)}")
+            except:
+                pass
+        return False
+    
+    return False
 
 def get_query_suggestions(partial_query: str, rag_processor) -> List[str]:
     """Generate query suggestions based on partial input and product database."""
@@ -1030,12 +1079,74 @@ with tab_config:
 with tab_query:
     st.header("Chat Interface")
     
-    # Enhanced example queries with categories
-    if st.session_state.get('rag_processor') and st.session_state.get('use_rag', False):
-        with st.expander("💡 Example Queries by Category", expanded=True):
+    # Create main layout with sidebar
+    main_col, sidebar_col = st.columns([3, 1])
+    
+    with sidebar_col:
+        # Create sidebar tabs for suggestions and cart
+        sidebar_tab_suggestions, sidebar_tab_cart = st.tabs(["💡 Suggestions", "🛒 Cart"])
+        
+        with sidebar_tab_suggestions:
+            st.subheader("Query Suggestions")
             
-            # Organize examples by category
-            example_categories = {
+            # Query History
+            if "query_history" not in st.session_state:
+                st.session_state.query_history = []
+            
+            if st.session_state.query_history:
+                st.write("**Recent Queries:**")
+                for i, query in enumerate(st.session_state.query_history[-5:]):  # Last 5 queries
+                    if st.button(f"📝 {query[:30]}...", key=f"history_{i}", help=query):
+                        st.session_state.prefilled_query = query
+                        st.rerun()
+            
+            # Quick example queries
+            st.write("**Quick Examples:**")
+            quick_examples = [
+                "What do people say about iPhone cables?",
+                "Compare wireless headphones",
+                "Best budget tablets",
+                "Gaming router recommendations"
+            ]
+            
+            for i, example in enumerate(quick_examples):
+                if st.button(f"💡 {example}", key=f"quick_example_{i}"):
+                    st.session_state.prefilled_query = example
+                    st.rerun()
+        
+        with sidebar_tab_cart:
+            # Initialize cart state manager
+            if 'cart_manager' not in st.session_state:
+                from chatbot_ui.ui_components import CartStateManager
+                st.session_state.cart_manager = CartStateManager()
+            
+            # Display cart update notifications if available
+            if 'cart_update_notification' in st.session_state:
+                notification = st.session_state.cart_update_notification
+                
+                # Only show recent notifications (within last 8 seconds)
+                if time.time() - notification["timestamp"] < 8:
+                    if notification["type"] == "success":
+                        st.success(f"🛒 {notification['message']}")
+                    elif notification["type"] == "error":
+                        st.error(f"🛒 {notification['message']}")
+                    else:
+                        st.info(f"🛒 {notification['message']}")
+                else:
+                    # Clear old notifications
+                    del st.session_state.cart_update_notification
+            
+            # Render cart sidebar with real-time updates
+            st.session_state.cart_manager.render_cart_sidebar()
+    
+    with main_col:
+        
+        # Enhanced example queries with categories
+        if st.session_state.get('rag_processor') and st.session_state.get('use_rag', False):
+            with st.expander("💡 Example Queries by Category", expanded=False):
+                
+                # Organize examples by category
+                example_categories = {
                 "🔍 Product Information": [
                     "What are the key features of iPhone charging cables?",
                     "Tell me about Fire TV Stick performance and capabilities"
@@ -1070,174 +1181,184 @@ with tab_query:
                         if st.button(query, key=f"example_{category}_{i}", help="Click to use this query"):
                             st.session_state.prefilled_query = query
                             st.rerun()
-                st.write("")  # Add some spacing
-    
-    # Query History
-    if "query_history" not in st.session_state:
-        st.session_state.query_history = []
-    
-    if st.session_state.query_history:
-        with st.expander("🕐 Recent Queries"):
-            selected_history = st.selectbox(
-                "Select a previous query:",
-                options=[""] + st.session_state.query_history[-10:],  # Last 10 queries
-                index=0,
-                key="history_selector"
-            )
-            if selected_history:
-                st.session_state.prefilled_query = selected_history
-                st.rerun()
-    
-    # Quick Filters (when RAG is enabled)
-    if st.session_state.get('rag_processor') and st.session_state.get('use_rag', False):
-        st.subheader("🎛️ Quick Filters")
-        filter_col1, filter_col2, filter_col3 = st.columns(3)
+                    st.write("")  # Add some spacing
         
-        with filter_col1:
-            query_type_filter = st.selectbox(
-                "Query Type",
-                ["Any", "Product Info", "Reviews", "Comparison", "Complaints", "Recommendations", "Use Case"],
-                key="query_type_filter"
-            )
-        
-        with filter_col2:
-            category_filter = st.selectbox(
-                "Category",
-                ["Any", "Cables", "Audio", "Tablets", "Networking", "Gaming", "Accessories"],
-                key="category_filter"
-            )
-        
-        with filter_col3:
-            price_filter = st.selectbox(
-                "Price Range",
-                ["Any", "Under $50", "$50-$100", "$100-$200", "Over $200"],
-                key="price_filter"
-            )
-        
-        # Apply filters button
-        if st.button("🔍 Apply Filters to Next Query", help="Filters will be applied to your next question"):
-            filter_context = []
-            if query_type_filter != "Any":
-                filter_context.append(f"Focus on {query_type_filter.lower()}")
-            if category_filter != "Any":
-                filter_context.append(f"in {category_filter.lower()} category")
-            if price_filter != "Any":
-                filter_context.append(f"with price range {price_filter.lower()}")
+        # Quick Filters (when RAG is enabled)
+        if st.session_state.get('rag_processor') and st.session_state.get('use_rag', False):
+            st.subheader("🎛️ Quick Filters")
+            filter_col1, filter_col2, filter_col3 = st.columns(3)
             
-            if filter_context:
-                st.session_state.active_filters = " ".join(filter_context)
-                st.success(f"Filters applied: {st.session_state.active_filters}")
-    
-    st.divider()
-    
-    # Chat History Display
-    if "messages" not in st.session_state:
-        welcome_msg = "Hello! I'm your Amazon Electronics Assistant. "
-        if st.session_state.get('rag_processor'):
-            welcome_msg += "Ask me about electronics products, reviews, comparisons, and recommendations from our database of 1,000 products and 20,000 reviews!"
-        else:
-            welcome_msg += "How can I assist you today?"
-        
-        st.session_state.messages = [{"role": "assistant", "content": welcome_msg}]
-
-    # Display chat messages
-    for i, message in enumerate(st.session_state.messages):
-        with st.chat_message(message["role"]):
-            # Use enhanced display for assistant messages when RAG is enabled
-            if (message["role"] == "assistant" and 
-                i > 0 and  # Not the welcome message
-                st.session_state.get('use_rag', False)):
-                display_enhanced_response(message["content"], rag_context=False)
-            else:
-                st.markdown(message["content"])
-
-    # Initialize query input state
-    if "query_input" not in st.session_state:
-        st.session_state.query_input = ""
-
-    # Handle prefilled query from example buttons
-    if "prefilled_query" in st.session_state:
-        st.session_state.query_input = st.session_state.prefilled_query
-        del st.session_state.prefilled_query  # Clear after using
-
-    # Build dynamic placeholder text
-    placeholder_text = "Type your question here..."
-    if st.session_state.get('rag_processor') and st.session_state.get('use_rag', False):
-        placeholder_text = "Ask about electronics products, reviews, comparisons, or use the examples above"
-    
-    # Add filter context to placeholder if active
-    if hasattr(st.session_state, 'active_filters'):
-        placeholder_text = f"{placeholder_text} (Filters: {st.session_state.active_filters})"
-    
-    # Query input (outside form to allow suggestions)
-    query_input = st.text_input(
-        "Your Question:",
-        value=st.session_state.query_input,
-        placeholder=placeholder_text,
-        key="query_text_input",
-        help="Ask about products, reviews, comparisons, or use the examples above"
-    )
-    
-    # Show query suggestions if user is typing (outside form)
-    if query_input and len(query_input) >= 3 and st.session_state.get('rag_processor'):
-        suggestions = get_query_suggestions(query_input, st.session_state.rag_processor)
-        if suggestions:
-            st.write("💡 **Suggestions:**")
-            suggestion_cols = st.columns(min(len(suggestions), 3))
-            for i, suggestion in enumerate(suggestions):
-                with suggestion_cols[i % 3]:
-                    if st.button(suggestion, key=f"suggestion_{i}", help="Click to use this suggestion"):
-                        st.session_state.query_input = suggestion
-                        st.rerun()
-    
-    # Form for submit and clear buttons only
-    with st.form(key="query_form", clear_on_submit=False):
-        submit_col, clear_col = st.columns([3, 1])
-        with submit_col:
-            submit_button = st.form_submit_button("🚀 Send", use_container_width=True)
-        with clear_col:
-            clear_button = st.form_submit_button("🗑️ Clear", use_container_width=True)
-        
-    if clear_button:
-        st.session_state.messages = [st.session_state.messages[0]]  # Keep welcome message
-        st.session_state.query_input = ""  # Clear query input
-        if hasattr(st.session_state, 'active_filters'):
-            del st.session_state.active_filters
-        st.rerun()
-    
-    if submit_button and query_input.strip():
-        # Add active filters to query if they exist
-        final_query = query_input
-        if hasattr(st.session_state, 'active_filters'):
-            final_query = f"{query_input} ({st.session_state.active_filters})"
-            del st.session_state.active_filters  # Clear after use
-        
-        # Add to query history
-        if query_input not in st.session_state.query_history:
-            st.session_state.query_history.append(query_input)
-        
-        # Clear the session state input
-        st.session_state.query_input = ""
-        
-        # Add user message
-        st.session_state.messages.append({"role": "user", "content": final_query})
-        with st.chat_message("user"):
-            st.markdown(final_query)
-
-        # Generate assistant response
-        with st.chat_message("assistant"):
-            with st.spinner("Thinking..." if not st.session_state.get('use_rag', False) else "Searching products and reviews..."):
-                client = get_llm_client()
-                output = run_llm(client, st.session_state.messages)
+            with filter_col1:
+                query_type_filter = st.selectbox(
+                    "Query Type",
+                    ["Any", "Product Info", "Reviews", "Comparison", "Complaints", "Recommendations", "Use Case"],
+                    key="query_type_filter"
+                )
+            
+            with filter_col2:
+                category_filter = st.selectbox(
+                    "Category",
+                    ["Any", "Cables", "Audio", "Tablets", "Networking", "Gaming", "Accessories"],
+                    key="category_filter"
+                )
+            
+            with filter_col3:
+                price_filter = st.selectbox(
+                    "Price Range",
+                    ["Any", "Under $50", "$50-$100", "$100-$200", "Over $200"],
+                    key="price_filter"
+                )
+            
+            # Apply filters button
+            if st.button("🔍 Apply Filters to Next Query", help="Filters will be applied to your next question"):
+                filter_context = []
+                if query_type_filter != "Any":
+                    filter_context.append(f"Focus on {query_type_filter.lower()}")
+                if category_filter != "Any":
+                    filter_context.append(f"in {category_filter.lower()} category")
+                if price_filter != "Any":
+                    filter_context.append(f"with price range {price_filter.lower()}")
                 
-                # Use enhanced display if RAG was used
-                if st.session_state.get('use_rag', False):
-                    display_enhanced_response(output, rag_context=True)
-                else:
-                    st.write(output)
+                if filter_context:
+                    st.session_state.active_filters = " ".join(filter_context)
+                    st.success(f"Filters applied: {st.session_state.active_filters}")
         
-        st.session_state.messages.append({"role": "assistant", "content": output})
-        st.rerun()
+        st.divider()
+        
+        # Chat History Display
+        if "messages" not in st.session_state:
+            welcome_msg = "Hello! I'm your Amazon Electronics Assistant. "
+            if st.session_state.get('rag_processor'):
+                welcome_msg += "Ask me about electronics products, reviews, comparisons, and recommendations from our database of 1,000 products and 20,000 reviews!"
+            else:
+                welcome_msg += "How can I assist you today?"
+            
+            st.session_state.messages = [{"role": "assistant", "content": welcome_msg}]
+
+        # Display chat messages
+        for i, message in enumerate(st.session_state.messages):
+            with st.chat_message(message["role"]):
+                # Use enhanced display for assistant messages when RAG is enabled
+                if (message["role"] == "assistant" and 
+                    i > 0 and  # Not the welcome message
+                    st.session_state.get('use_rag', False)):
+                    display_enhanced_response(message["content"], rag_context=False)
+                else:
+                    st.markdown(message["content"])
+
+        # Initialize query input state
+        if "query_input" not in st.session_state:
+            st.session_state.query_input = ""
+
+        # Handle prefilled query from example buttons
+        if "prefilled_query" in st.session_state:
+            st.session_state.query_input = st.session_state.prefilled_query
+            del st.session_state.prefilled_query  # Clear after using
+
+        # Build dynamic placeholder text
+        placeholder_text = "Type your question here..."
+        if st.session_state.get('rag_processor') and st.session_state.get('use_rag', False):
+            placeholder_text = "Ask about electronics products, reviews, comparisons, or use the examples above"
+        
+        # Add filter context to placeholder if active
+        if hasattr(st.session_state, 'active_filters'):
+            placeholder_text = f"{placeholder_text} (Filters: {st.session_state.active_filters})"
+        
+        # Query input (outside form to allow suggestions)
+        query_input = st.text_input(
+            "Your Question:",
+            value=st.session_state.query_input,
+            placeholder=placeholder_text,
+            key="query_text_input",
+            help="Ask about products, reviews, comparisons, or use the examples above"
+        )
+        
+        # Show query suggestions if user is typing (outside form)
+        if query_input and len(query_input) >= 3 and st.session_state.get('rag_processor'):
+            suggestions = get_query_suggestions(query_input, st.session_state.rag_processor)
+            if suggestions:
+                st.write("💡 **Suggestions:**")
+                suggestion_cols = st.columns(min(len(suggestions), 3))
+                for i, suggestion in enumerate(suggestions):
+                    with suggestion_cols[i % 3]:
+                        if st.button(suggestion, key=f"suggestion_{i}", help="Click to use this suggestion"):
+                            st.session_state.query_input = suggestion
+                            st.rerun()
+        
+        # Form for submit and clear buttons only
+        with st.form(key="query_form", clear_on_submit=False):
+            submit_col, clear_col = st.columns([3, 1])
+            with submit_col:
+                submit_button = st.form_submit_button("🚀 Send", use_container_width=True)
+            with clear_col:
+                clear_button = st.form_submit_button("🗑️ Clear", use_container_width=True)
+            
+        if clear_button:
+            st.session_state.messages = [st.session_state.messages[0]]  # Keep welcome message
+            st.session_state.query_input = ""  # Clear query input
+            if hasattr(st.session_state, 'active_filters'):
+                del st.session_state.active_filters
+            st.rerun()
+        
+        if submit_button and query_input.strip():
+            # Add active filters to query if they exist
+            final_query = query_input
+            if hasattr(st.session_state, 'active_filters'):
+                final_query = f"{query_input} ({st.session_state.active_filters})"
+                del st.session_state.active_filters  # Clear after use
+            
+            # Add to query history
+            if query_input not in st.session_state.query_history:
+                st.session_state.query_history.append(query_input)
+            
+            # Clear the session state input
+            st.session_state.query_input = ""
+            
+            # Add user message
+            st.session_state.messages.append({"role": "user", "content": final_query})
+            with st.chat_message("user"):
+                st.markdown(final_query)
+
+            # Check if query is cart-related
+            cart_keywords = ["cart", "add to cart", "remove from cart", "shopping cart", "buy", "purchase"]
+            is_cart_query = any(keyword in final_query.lower() for keyword in cart_keywords)
+            
+            if is_cart_query:
+                # Suggest using the agent interface for cart functionality
+                with st.chat_message("assistant"):
+                    st.warning("🛒 **Cart functionality detected!**")
+                    st.write("For shopping cart operations, please use the **AI Agent** tab which supports cart management.")
+                    st.write("The traditional RAG interface doesn't support cart operations.")
+                    
+                    # Still provide a basic response
+                    st.write("However, I can still help you with product information and reviews:")
+                    
+                    with st.spinner("Searching products and reviews..."):
+                        client = get_llm_client()
+                        output = run_llm(client, st.session_state.messages)
+                        
+                        if st.session_state.get('use_rag', False):
+                            display_enhanced_response(output, rag_context=True)
+                        else:
+                            st.write(output)
+                    
+                    cart_suggestion = f"\n\n💡 **Tip:** Switch to the 'AI Agent' tab and try: '{final_query}'"
+                    output = output + cart_suggestion
+            else:
+                # Generate assistant response normally
+                with st.chat_message("assistant"):
+                    with st.spinner("Thinking..." if not st.session_state.get('use_rag', False) else "Searching products and reviews..."):
+                        client = get_llm_client()
+                        output = run_llm(client, st.session_state.messages)
+                        
+                        # Use enhanced display if RAG was used
+                        if st.session_state.get('use_rag', False):
+                            display_enhanced_response(output, rag_context=True)
+                        else:
+                            st.write(output)
+            
+            st.session_state.messages.append({"role": "assistant", "content": output})
+            st.rerun()
 
 with tab_monitoring:
     st.header("Performance Monitoring")
